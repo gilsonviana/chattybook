@@ -42,6 +42,10 @@ response from each agent: **10 generated responses** in total.
 Each answer appears as soon as its model request completes. The first request can
 take longer while Ollama loads model weights. Existing answers stay visible while
 the next agent thinks. Conversations and completion status are saved in SQLite.
+Each conversation has its own `/conversation/{id}` URL, and the home page lists
+previous conversations so they can be reopened. Opening an unfinished saved chat
+restores its messages without starting generation; select **Retry / continue
+dialogue** to resume it.
 If generation fails, the actual error is displayed; **Retry / continue dialogue**
 reloads persisted messages and resumes without adding a fake or empty answer.
 
@@ -58,6 +62,8 @@ reloads persisted messages and resumes without adding a fake or empty answer.
    These map to 256, 1024, and 2048 generated-token ceilings. `totalTurns`
    defaults to 5 and accepts integers from 1 to 100. Returns a new conversation
    with no placeholder messages.
+- `GET /api/conversation`: returns newest-first conversation summaries with IDs,
+  subjects, status, timestamps, and message counts.
 - `POST /api/chat`: `{ conversationId, expectedMessageCount }`. Generates and saves
   exactly one response. The server chooses the next agent, constructs history from
   that agent's perspective, and marks the conversation complete after both agents

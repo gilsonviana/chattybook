@@ -1,20 +1,22 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChatWindow } from '@/components/ChatWindow'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { useCallback, useEffect, useState } from 'react'
 import { AgentSelector } from '@/components/AgentSelector'
 import { getOllamaModels, requestJson } from '../../lib/client'
 import type { ConversationMode } from '../../lib/conversation-mode'
 import { type Persona } from '../../lib/personas'
 import type { ResponseLength } from '../../lib/response-length'
-import type { Conversation, Message } from '../../lib/types'
+import type { Conversation, ConversationSummary } from '../../lib/types'
 import type { OllamaHealth } from '../../lib/ollama'
 
 export default function Home() {
-  const [conversation, setConversation] = useState<Conversation | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
+  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [history, setHistory] = useState<ConversationSummary[]>([])
+  const [historyError, setHistoryError] = useState('')
   const [health, setHealth] = useState<OllamaHealth | null>(null)
   const [checking, setChecking] = useState(true)
   const [models, setModels] = useState<string[]>([])
@@ -26,7 +28,6 @@ export default function Home() {
   const [persona2, setPersona2] = useState<Persona>('None')
   const [mode, setMode] = useState<ConversationMode>('discussion')
   const [responseLength, setResponseLength] = useState<ResponseLength>('medium')
-  const busy = useRef(false)
 
   const refreshOllama = useCallback(() => {
     return requestJson<OllamaHealth>('/api/ollama/health').then(async status => {
@@ -46,24 +47,18 @@ export default function Home() {
 
   useEffect(() => { void refreshOllama() }, [refreshOllama])
 
-  async function generateDialogue(active: Conversation) {
-    // Use request-local state, not React state captured before an async update.
-    let history = active.messages
-    while (history.length < active.totalTurns * 2) {
-      const result = await requestJson<{ allMessages: Message[]; completed: boolean }>('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId: active.id, expectedMessageCount: history.length }),
-      })
-      history = result.allMessages
-      setMessages(history)
-      setConversation({ ...active, messages: history, status: result.completed ? 'completed' : 'active' })
-    }
-  }
+  useEffect(() => {
+    let mounted = true
+    void requestJson<ConversationSummary[]>('/api/conversation').then(conversations => {
+      if (mounted) setHistory(conversations)
+    }).catch(error => {
+      if (mounted) setHistoryError(error instanceof Error ? error.message : 'Could not load conversation history.')
+    })
+    return () => { mounted = false }
+  }, [])
 
   async function startConversation() {
-    if (busy.current || !subject.trim() || !model1 || !model2 || !validTurns || !health?.running) return
-    busy.current = true
+    if (!subject.trim() || !model1 || !model2 || !validTurns || !health?.running) return
     setIsLoading(true)
     setError('')
     try {
@@ -72,32 +67,11 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subject, model1, model2, persona1, persona2, mode, responseLength, totalTurns: turns }),
       })
-      setConversation(active)
-      setMessages(active.messages)
-      await generateDialogue(active)
+      window.sessionStorage.setItem('chattybook:new-conversation', String(active.id))
+      router.push(`/conversation/${active.id}`)
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not start the dialogue.')
     } finally {
-      busy.current = false
-      setIsLoading(false)
-    }
-  }
-
-  async function retryConversation() {
-    if (busy.current || !conversation) return
-    busy.current = true
-    setIsLoading(true)
-    setError('')
-    try {
-      // Reconcile persisted messages if the previous response was lost in transit.
-      const active = await requestJson<Conversation>(`/api/conversation/${conversation.id}`)
-      setConversation(active)
-      setMessages(active.messages)
-      await generateDialogue(active)
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Could not continue the dialogue.')
-    } finally {
-      busy.current = false
       setIsLoading(false)
     }
   }
@@ -124,8 +98,7 @@ export default function Home() {
         <p className="error" role="alert">No local models found. Install one with <code>ollama pull qwen3.5:4b</code>, then refresh models.</p>
       )}
 
-      {!conversation ? (
-        <form className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
+      <form className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
           <label>
             Discussion subject
             <input value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
@@ -157,18 +130,30 @@ export default function Home() {
           <button type="submit" disabled={isLoading || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
             {isLoading ? 'Starting...' : 'Start dialogue'}
           </button>
-        </form>
-      ) : (
-        <>
-          <ChatWindow subject={conversation.subject} messages={messages} isLoading={isLoading} totalTurns={conversation.totalTurns} persona1={conversation.persona1} persona2={conversation.persona2} />
-          <div className="actions">
-            {!isLoading && conversation.status !== 'completed' && <button onClick={retryConversation}>Retry / continue dialogue</button>}
-            <button className="secondary" disabled={isLoading} onClick={() => { setConversation(null); setMessages([]); setError('') }}>New dialogue</button>
-            {conversation.status === 'completed' && <strong role="status">Dialogue completed</strong>}
-          </div>
-          <p className="muted">Agent 1: {conversation.model1} / {conversation.persona1}; Agent 2: {conversation.model2} / {conversation.persona2}</p>
-        </>
-      )}
+      </form>
+
+      <section className="history" aria-labelledby="history-heading">
+        <div className="history-heading">
+          <h2 id="history-heading">Previous conversations</h2>
+          <span className="muted">{history.length}</span>
+        </div>
+        {historyError && <p className="error" role="alert">{historyError}</p>}
+        {!historyError && history.length === 0 && <p className="muted">No saved conversations yet.</p>}
+        {history.length > 0 && (
+          <ul className="history-list">
+            {history.map(conversation => (
+              <li key={conversation.id}>
+                <Link href={`/conversation/${conversation.id}`}>
+                  <span className="history-subject">{conversation.subject}</span>
+                  <span className="history-meta">
+                    {conversation.status} · {conversation.messageCount} messages · {new Date(conversation.updatedAt).toLocaleString()}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       <footer>Powered by local Ollama models. Conversations are saved on this computer.</footer>
     </main>
   )

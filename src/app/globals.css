@@ -33,6 +33,17 @@ h1, h2, h3, p { margin: 0; }
 .mode-toggle[aria-pressed="true"] { background: #315cd5; color: white; border: 1px solid #315cd5; }
 .mode-toggle[aria-pressed="true"]:hover:not(:disabled) { background: #2347ae; }
 .turns-input { max-width: 140px; }
+.history { margin-top: 32px; }
+.history-heading { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.history-heading h2 { font-size: 1.15rem; }
+.history-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.history-list li { border-bottom: 1px solid var(--border); }
+.history-list a { display: flex; flex-direction: column; gap: 2px; padding: 14px 4px; color: var(--text); text-decoration: none; }
+.history-list a:hover .history-subject { color: #315cd5; text-decoration: underline; }
+.history-subject { font-weight: 600; overflow-wrap: anywhere; }
+.history-meta { color: var(--muted); font-size: .85rem; }
+.conversation-nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+.conversation-nav a { color: #315cd5; font-weight: 600; }
 .error { border: 1px solid #df8590; background: #fff0f2; color: #972b3d; border-radius: 10px; padding: 16px; margin-bottom: 20px; overflow-wrap: anywhere; }
 .chat-header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
 .chat-header h2 { font-size: 1.2rem; overflow-wrap: anywhere; }

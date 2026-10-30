@@ -163,6 +163,35 @@ test('default five turns generate ten alternating answers with correct perspecti
   assert.equal(calls.length, 10)
 })
 
+test('conversation history lists newest first with summaries and detail stays scoped by ID', async () => {
+  const first = await createConversation({ totalTurns: 1 })
+  const second = await createConversation({ subject: 'How do libraries shape communities?', totalTurns: 1 })
+  assert.equal(first.status, 201)
+  assert.equal(second.status, 201)
+
+  const generated = await api('/api/chat', { conversationId: first.data.id, expectedMessageCount: 0 })
+  assert.equal(generated.status, 200)
+
+  const history = await fetch(`${base}/api/conversation`)
+  assert.equal(history.status, 200)
+  const summaries = await history.json()
+  const createdIds = new Set([first.data.id, second.data.id])
+  const createdSummaries = summaries.filter(({ id }) => createdIds.has(id))
+  assert.deepEqual(createdSummaries.map(({ id }) => id), [second.data.id, first.data.id])
+  assert.equal(createdSummaries[0].subject, 'How do libraries shape communities?')
+  assert.equal(createdSummaries[0].messageCount, 0)
+  assert.equal(createdSummaries[1].messageCount, 1)
+  assert.deepEqual(Object.keys(createdSummaries[0]).sort(), [
+    'createdAt', 'id', 'messageCount', 'status', 'subject', 'updatedAt',
+  ])
+
+  const firstDetail = await api(`/api/conversation/${first.data.id}`)
+  const secondDetail = await api(`/api/conversation/${second.data.id}`)
+  assert.equal(firstDetail.data.messages.length, 1)
+  assert.equal(secondDetail.data.subject, 'How do libraries shape communities?')
+  assert.deepEqual(secondDetail.data.messages, [])
+})
+
 test('independent personas persist and guide only their assigned agent', async () => {
   calls.length = 0
   const created = await createConversation({ totalTurns: 1, persona1: 'Student', persona2: 'Historian' })

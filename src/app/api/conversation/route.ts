@@ -4,6 +4,29 @@ import { initializeConversation } from '../../../../lib/conversation'
 import { isConversationMode } from '../../../../lib/conversation-mode'
 import { isPersona } from '../../../../lib/personas'
 import { isResponseLength } from '../../../../lib/response-length'
+import { prisma } from '../../../../lib/db'
+
+export async function GET() {
+  try {
+    const conversations = await prisma.conversation.findMany({
+      select: {
+        id: true,
+        subject: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: { select: { messages: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })
+    return NextResponse.json(conversations.map(({ _count, ...conversation }) => ({
+      ...conversation,
+      messageCount: _count.messages,
+    })))
+  } catch (error) {
+    return errorResponse(error)
+  }
+}
 
 export async function POST(request: Request) {
   try {

@@ -18,6 +18,15 @@ export interface Conversation {
   messages: Message[]
 }
 
+export interface ConversationSummary {
+  id: number
+  subject: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+}
+
 export interface Message {
   id: number
   conversationId: number
