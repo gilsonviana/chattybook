@@ -1,11 +1,14 @@
 import { prisma } from './db'
 import { ApiError } from './api'
 import { generateChatResponse, requireLocalModels } from './ollama'
+import { getPersonaInstruction, isPersona, type Persona } from './personas'
 
 export interface ConversationOptions {
   subject: string
   model1: string
   model2: string
+  persona1: Persona
+  persona2: Persona
   totalTurns: number
 }
 
@@ -46,11 +49,13 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
     const agent = count % 2 === 0 ? 1 : 2
     const speaker = agent === 1 ? 'agent1' : 'agent2'
     const model = agent === 1 ? conversation.model1 : conversation.model2
+    const persona = agent === 1 ? conversation.persona1 : conversation.persona2
+    const personaInstruction = isPersona(persona) ? getPersonaInstruction(persona) : ''
     await requireLocalModels([model])
     const content = await generateChatResponse(model, [
       {
         role: 'system',
-        content: `You are Agent ${agent} in a dialogue with another AI agent about "${conversation.subject}". ${
+        content: `You are Agent ${agent} in a dialogue with another AI agent about "${conversation.subject}". ${personaInstruction ? `${personaInstruction} ` : ''}${
           agent === 1 ? 'Offer ideas and arguments.' : 'Explore a different perspective and constructively challenge ideas.'
         } Respond directly to the other agent, building on the discussion. Keep each response to one or two short paragraphs. Do not write the other agent's response.`,
       },

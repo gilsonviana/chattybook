@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatWindow } from '@/components/ChatWindow'
 import { AgentSelector } from '@/components/AgentSelector'
 import { getOllamaModels, requestJson } from '../../lib/client'
+import { type Persona } from '../../lib/personas'
 import type { Conversation, Message } from '../../lib/types'
 import type { OllamaHealth } from '../../lib/ollama'
 
@@ -19,6 +20,8 @@ export default function Home() {
   const [turns, setTurns] = useState<number | ''>(5)
   const [model1, setModel1] = useState('')
   const [model2, setModel2] = useState('')
+  const [persona1, setPersona1] = useState<Persona>('None')
+  const [persona2, setPersona2] = useState<Persona>('None')
   const busy = useRef(false)
 
   const refreshOllama = useCallback(() => {
@@ -63,7 +66,7 @@ export default function Home() {
       const active = await requestJson<Conversation>('/api/conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, model1, model2, totalTurns: turns }),
+        body: JSON.stringify({ subject, model1, model2, persona1, persona2, totalTurns: turns }),
       })
       setConversation(active)
       setMessages(active.messages)
@@ -123,8 +126,8 @@ export default function Home() {
             Discussion subject
             <input value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
           </label>
-          <AgentSelector model1={model1} model2={model2} models={models} onChange={(first, second) => { setModel1(first); setModel2(second) }} disabled={isLoading || checking || !models.length} />
-          <p className="muted">You can choose the same model for both agents; each has its own perspective.</p>
+          <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
+          <p className="muted">Each agent can use a different local model and persona.</p>
           <label>
             Number of turns
             <input className="turns-input" type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} />
@@ -136,13 +139,13 @@ export default function Home() {
         </form>
       ) : (
         <>
-          <ChatWindow subject={conversation.subject} messages={messages} isLoading={isLoading} totalTurns={conversation.totalTurns} />
+          <ChatWindow subject={conversation.subject} messages={messages} isLoading={isLoading} totalTurns={conversation.totalTurns} persona1={conversation.persona1} persona2={conversation.persona2} />
           <div className="actions">
             {!isLoading && conversation.status !== 'completed' && <button onClick={retryConversation}>Retry / continue dialogue</button>}
             <button className="secondary" disabled={isLoading} onClick={() => { setConversation(null); setMessages([]); setError('') }}>New dialogue</button>
             {conversation.status === 'completed' && <strong role="status">Dialogue completed</strong>}
           </div>
-          <p className="muted">Agent 1: {conversation.model1} / Agent 2: {conversation.model2}</p>
+          <p className="muted">Agent 1: {conversation.model1} / {conversation.persona1}; Agent 2: {conversation.model2} / {conversation.persona2}</p>
         </>
       )}
       <footer>Powered by local Ollama models. Conversations are saved on this computer.</footer>

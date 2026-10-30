@@ -132,6 +132,8 @@ test('default five turns generate ten alternating answers with correct perspecti
   const created = await createConversation()
   assert.equal(created.status, 201)
   assert.equal(created.data.totalTurns, 5)
+  assert.equal(created.data.persona1, 'None')
+  assert.equal(created.data.persona2, 'None')
   assert.deepEqual(created.data.messages, [])
   const id = created.data.id
   for (let index = 0; index < 10; index++) {
@@ -157,6 +159,29 @@ test('default five turns generate ten alternating answers with correct perspecti
   assert.equal(saved.data.messages.length, 10)
   assert.equal((await api('/api/chat', { conversationId: id, expectedMessageCount: 10 })).status, 409)
   assert.equal(calls.length, 10)
+})
+
+test('independent personas persist and guide only their assigned agent', async () => {
+  calls.length = 0
+  const created = await createConversation({ totalTurns: 1, persona1: 'Student', persona2: 'Historian' })
+  assert.equal(created.status, 201)
+  assert.equal(created.data.persona1, 'Student')
+  assert.equal(created.data.persona2, 'Historian')
+
+  const first = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 0 })
+  const second = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 1 })
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  assert.equal(calls[0].model, localModels[0])
+  assert.match(calls[0].messages[0].content, /curious student/)
+  assert.doesNotMatch(calls[0].messages[0].content, /historian/i)
+  assert.equal(calls[1].model, localModels[1])
+  assert.match(calls[1].messages[0].content, /historian/)
+  assert.doesNotMatch(calls[1].messages[0].content, /curious student/)
+
+  const saved = await api(`/api/conversation/${created.data.id}`)
+  assert.equal(saved.data.persona1, 'Student')
+  assert.equal(saved.data.persona2, 'Historian')
 })
 
 test('concurrent and stale requests do not create duplicate messages', async () => {
@@ -191,7 +216,7 @@ test('empty output and Ollama failures persist no fake answer and can be retried
 })
 
 test('invalid inputs, missing conversations, and uninstalled/cloud models are rejected', async () => {
-  for (const extra of [{ subject: ' ' }, { totalTurns: 0 }, { totalTurns: 2.5 }, { totalTurns: 101 }, { totalTurns: '5' }, { model1: 'not-installed' }, { model1: 'remote:cloud' }, { model1: 'remote-alias' }]) {
+  for (const extra of [{ subject: ' ' }, { totalTurns: 0 }, { totalTurns: 2.5 }, { totalTurns: 101 }, { totalTurns: '5' }, { persona1: 'Oracle' }, { persona2: null }, { model1: 'not-installed' }, { model1: 'remote:cloud' }, { model1: 'remote-alias' }]) {
     assert.equal((await createConversation(extra)).status, 400, JSON.stringify(extra))
   }
   assert.equal((await api('/api/chat', { conversationId: -1, expectedMessageCount: 0 })).status, 400)

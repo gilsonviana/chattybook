@@ -28,6 +28,7 @@ h1, h2, h3, p { margin: 0; }
 .muted, footer { color: var(--muted); font-size: .9rem; }
 .setup { padding: 28px; display: grid; gap: 20px; }
 .agent-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.agent-config { display: grid; gap: 14px; }
 .turns-input { max-width: 140px; }
 .error { border: 1px solid #df8590; background: #fff0f2; color: #972b3d; border-radius: 10px; padding: 16px; margin-bottom: 20px; overflow-wrap: anywhere; }
 .chat-header { padding: 20px 24px; border-bottom: 1px solid var(--border); }

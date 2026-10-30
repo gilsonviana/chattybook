@@ -9,10 +9,12 @@ datasource db {
 
 model Conversation {
   id            Int         @id @default(autoincrement())
-  subject       String      
-  model1        String     
-  model2        String      
-  totalTurns    Int        
+  subject       String
+  model1        String
+  model2        String
+  persona1      String      @default("None")
+  persona2      String      @default("None")
+  totalTurns    Int
   status        String      @default("active")
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -22,13 +24,13 @@ model Conversation {
 
 model Message {
   id            Int         @id @default(autoincrement())
-  conversationId Int       
-  speaker       String      
-  role          String      
-  content       String     
-  turnNumber    Int        
+  conversationId Int
+  speaker       String
+  role          String
+  content       String
+  turnNumber    Int
   createdAt     DateTime    @default(now())
-  
+
   @@index([conversationId])
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

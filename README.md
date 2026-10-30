@@ -32,7 +32,9 @@ response from each agent: **10 generated responses** in total.
    npm run dev
    ```
 5. Open [localhost:3000](http://localhost:3000). Confirm the Ollama connection and
-   available models, enter a subject, then select **Start dialogue**.
+   available models, enter a subject, choose a model and persona for each agent,
+   then select **Start dialogue**. Personas can be set independently to None,
+   Student, Professor, Minister, Politician, or Historian.
 
 Each answer appears as soon as its model request completes. The first request can
 take longer while Ollama loads model weights. Existing answers stay visible while
@@ -46,9 +48,10 @@ reloads persisted messages and resumes without adding a fake or empty answer.
 - `GET /api/ollama/models`: `{ models: string[] }` containing installed local model
   names, or `{ models: [], error }` (503). An empty successful list means no models
   are installed. Use **Refresh models** after installing a model or starting Ollama.
-- `POST /api/conversation`: `{ subject, model1, model2, totalTurns? }`. Defaults to
-  5 turns; accepts integers from 1 to 100. Returns a new conversation with no
-  placeholder messages.
+- `POST /api/conversation`: `{ subject, model1, model2, persona1?, persona2?, totalTurns? }`.
+   Personas default to `None` and can be `Student`, `Professor`, `Minister`,
+   `Politician`, or `Historian`. `totalTurns` defaults to 5 and accepts integers
+   from 1 to 100. Returns a new conversation with no placeholder messages.
 - `POST /api/chat`: `{ conversationId, expectedMessageCount }`. Generates and saves
   exactly one response. The server chooses the next agent, constructs history from
   that agent's perspective, and marks the conversation complete after both agents

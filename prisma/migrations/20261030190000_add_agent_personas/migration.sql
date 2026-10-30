@@ -1,0 +1,2 @@
+ALTER TABLE "Conversation" ADD COLUMN "persona1" TEXT NOT NULL DEFAULT 'None';
+ALTER TABLE "Conversation" ADD COLUMN "persona2" TEXT NOT NULL DEFAULT 'None';

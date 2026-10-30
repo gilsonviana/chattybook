@@ -1,8 +1,12 @@
+import type { Persona } from '../personas'
+
 export interface Conversation {
   id: number
   subject: string
   model1: string
   model2: string
+  persona1: Persona
+  persona2: Persona
   totalTurns: number
   status: string
   createdAt: string
