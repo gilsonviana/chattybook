@@ -92,7 +92,6 @@ export function ConversationView({ id }: { id: string }) {
       </header>
       <div className="conversation-nav">
         <Link href="/">New dialogue</Link>
-        {conversation && <span className="muted">Conversation {conversation.id}</span>}
       </div>
       {isLoading && !conversation && <p className="muted" role="status">Loading conversation...</p>}
       {error && <div className="error" role="alert">{error}</div>}
@@ -107,14 +106,13 @@ export function ConversationView({ id }: { id: string }) {
             persona1={conversation.persona1}
             persona2={conversation.persona2}
           />
-          <div className="actions">
-            {!isLoading && conversation.status !== 'completed' && <button onClick={() => void retryConversation()}>Retry / continue dialogue</button>}
-            {conversation.status === 'completed' && <strong role="status">Dialogue completed</strong>}
-          </div>
-          <p className="muted">Agent 1: {conversation.model1} / {conversation.persona1}; Agent 2: {conversation.model2} / {conversation.persona2}</p>
+          {!isLoading && conversation.status !== 'completed' && (
+            <div className="actions">
+              <button onClick={() => void retryConversation()}>Retry / continue dialogue</button>
+            </div>
+          )}
         </>
       )}
-      <footer>Powered by local Ollama models. Conversations are saved on this computer.</footer>
     </main>
   )
 }

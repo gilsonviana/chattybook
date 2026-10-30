@@ -25,7 +25,7 @@ h1, h2, h3, p { margin: 0; }
 .eyebrow { font-size: .75rem; letter-spacing: .15em; color: #315cd5; font-weight: 700; }
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 8px 30px #17243b08; margin-bottom: 20px; }
 .connection { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; }
-.muted, footer { color: var(--muted); font-size: .9rem; }
+.muted { color: var(--muted); font-size: .9rem; }
 .home-layout { display: grid; grid-template-columns: minmax(230px, .8fr) minmax(0, 1.8fr); grid-template-areas: "history setup"; gap: 20px; align-items: start; }
 .setup { padding: 28px; display: grid; gap: 20px; }
 .home-layout .setup { grid-area: setup; margin-bottom: 0; }
@@ -53,23 +53,24 @@ h1, h2, h3, p { margin: 0; }
 .chat-header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
 .chat-header h2 { font-size: 1.2rem; overflow-wrap: anywhere; }
 .chat-header p { color: var(--muted); font-size: .85rem; }
-.messages { max-height: 65vh; min-height: 240px; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
-.message { width: 88%; padding: 16px 20px; border-radius: 14px; background: #eaf1ff; color: #183664; }
+.chat-window { display: flex; flex-direction: column; gap: 20px; padding-bottom: 24px; }
+.message { width: calc(88% - 48px); margin-inline: 24px; padding: 16px 20px; border-radius: 14px; background: #eaf1ff; color: #183664; }
 .message.agent2 { align-self: flex-end; background: #f2eaff; color: #4a2d70; }
 .message h3 { font-size: .9rem; margin-bottom: 8px; }
 .message h3 span { font-size: .75rem; font-weight: 400; margin-left: 12px; }
 .message p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.thinking, .conversation-empty { margin-inline: 24px; }
 .thinking { color: var(--muted); font-size: .9rem; }
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
-footer { text-align: center; margin-top: 36px; }
 
 @media (max-width: 600px) {
   .app { padding: 24px 12px; }
   .home-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "history"; }
   .agent-selectors { grid-template-columns: 1fr; }
   .connection { flex-direction: column; align-items: stretch; }
-  .setup, .history, .messages { padding: 18px; }
-  .message { width: 95%; }
+  .setup, .history { padding: 18px; }
+  .message { width: calc(95% - 36px); margin-inline: 18px; }
+  .thinking, .conversation-empty { margin-inline: 18px; }
 }
 
 @media (prefers-color-scheme: dark) {

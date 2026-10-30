@@ -184,7 +184,6 @@ export default function Home() {
           )}
         </aside>
       </div>
-      <footer>Powered by local Ollama models. Conversations are saved on this computer.</footer>
     </main>
   )
 }
