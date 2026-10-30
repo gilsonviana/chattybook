@@ -13,6 +13,8 @@ let directory
 let base
 let output = ''
 let mode = 'online'
+let database
+let chatBarrier
 const calls = []
 const localModels = ['first:local', 'second:local']
 
@@ -28,6 +30,11 @@ async function api(path, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  return { status: response.status, data: await response.json() }
+}
+
+async function deleteConversation(id) {
+  const response = await fetch(`${base}/api/conversation/${id}`, { method: 'DELETE' })
   return { status: response.status, data: await response.json() }
 }
 
@@ -64,7 +71,12 @@ before(async () => {
         : { capabilities: ['completion'] }))
     } else if (request.url === '/api/chat') {
       calls.push(body)
-      await new Promise(resolve => setTimeout(resolve, 50))
+      if (chatBarrier) {
+        chatBarrier.started()
+        await chatBarrier.released
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
       response.end(JSON.stringify({
         message: { role: 'assistant', content: mode === 'empty' ? '' : `A real fixture answer from ${body.model}, response ${calls.length}.` },
         done: true,
@@ -84,6 +96,8 @@ before(async () => {
     OLLAMA_BASE_URL: `http://127.0.0.1:${ollamaPort}`,
   }
   execFileSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { env, stdio: 'pipe' })
+  const { PrismaClient } = await import('@prisma/client')
+  database = new PrismaClient({ datasources: { db: { url: env.DATABASE_URL } } })
   app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', String(appPort)], { env })
   app.stdout.on('data', chunk => { output += chunk })
   app.stderr.on('data', chunk => { output += chunk })
@@ -105,6 +119,7 @@ after(async () => {
     await exited
   }
   if (server) await new Promise(resolve => server.close(resolve))
+  if (database) await database.$disconnect()
   if (directory) await rm(directory, { recursive: true, force: true })
 })
 
@@ -190,6 +205,40 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.equal(firstDetail.data.messages.length, 1)
   assert.equal(secondDetail.data.subject, 'How do libraries shape communities?')
   assert.deepEqual(secondDetail.data.messages, [])
+})
+
+test('deleting a conversation cascades messages and removes it from history', async () => {
+  const created = await createConversation({ totalTurns: 1 })
+  const id = created.data.id
+  const generated = await api('/api/chat', { conversationId: id, expectedMessageCount: 0 })
+  assert.equal(generated.status, 200)
+  assert.equal(await database.message.count({ where: { conversationId: id } }), 1)
+
+  assert.deepEqual(await deleteConversation(id), { status: 200, data: { success: true } })
+  assert.equal(await database.message.count({ where: { conversationId: id } }), 0)
+  assert.equal((await api(`/api/conversation/${id}`)).status, 404)
+  const history = await fetch(`${base}/api/conversation`)
+  assert.equal((await history.json()).some(conversation => conversation.id === id), false)
+})
+
+test('deleting a generating conversation returns a conflict', async () => {
+  const created = await createConversation({ totalTurns: 1 })
+  let releaseChat
+  let signalChatStarted
+  const released = new Promise(resolve => { releaseChat = resolve })
+  const started = new Promise(resolve => { signalChatStarted = resolve })
+  chatBarrier = { started: signalChatStarted, released }
+
+  const generation = api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 0 })
+  await started
+  const deletion = await deleteConversation(created.data.id)
+  releaseChat()
+  const generated = await generation
+  chatBarrier = null
+
+  assert.equal(deletion.status, 409)
+  assert.match(deletion.data.error, /being generated/)
+  assert.equal(generated.status, 200)
 })
 
 test('independent personas persist and guide only their assigned agent', async () => {
@@ -310,6 +359,8 @@ test('invalid inputs, missing conversations, and uninstalled/cloud models are re
   assert.equal((await api('/api/chat', { conversationId: 999999, expectedMessageCount: 0 })).status, 404)
   assert.equal((await api('/api/conversation/invalid')).status, 400)
   assert.equal((await api('/api/conversation/999999')).status, 404)
+  assert.equal((await deleteConversation('invalid')).status, 400)
+  assert.equal((await deleteConversation(999999)).status, 404)
   mode = 'cloud-alias'
   const cloudAlias = await createConversation({ model1: 'disguised:local' })
   assert.equal(cloudAlias.status, 400)

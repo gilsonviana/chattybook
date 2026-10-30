@@ -17,6 +17,8 @@ export default function Home() {
   const [error, setError] = useState('')
   const [history, setHistory] = useState<ConversationSummary[]>([])
   const [historyError, setHistoryError] = useState('')
+  const [deleteError, setDeleteError] = useState('')
+  const [deletingConversationId, setDeletingConversationId] = useState<number | null>(null)
   const [health, setHealth] = useState<OllamaHealth | null>(null)
   const [checking, setChecking] = useState(true)
   const [models, setModels] = useState<string[]>([])
@@ -76,6 +78,22 @@ export default function Home() {
     }
   }
 
+  async function deleteConversation(conversation: ConversationSummary) {
+    if (conversation.status === 'generating' || deletingConversationId !== null) return
+    if (!window.confirm(`Delete "${conversation.subject}" and all its messages? This cannot be undone.`)) return
+
+    setDeleteError('')
+    setDeletingConversationId(conversation.id)
+    try {
+      await requestJson<{ success: boolean }>(`/api/conversation/${conversation.id}`, { method: 'DELETE' })
+      setHistory(current => current.filter(({ id }) => id !== conversation.id))
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Could not delete the conversation.')
+    } finally {
+      setDeletingConversationId(null)
+    }
+  }
+
   const validTurns = typeof turns === 'number' && Number.isInteger(turns) && turns >= 1 && turns <= 100
 
   return (
@@ -98,7 +116,8 @@ export default function Home() {
         <p className="error" role="alert">No local models found. Install one with <code>ollama pull qwen3.5:4b</code>, then refresh models.</p>
       )}
 
-      <form className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
+      <div className="home-layout">
+        <form className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
           <label>
             Discussion subject
             <input value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
@@ -130,30 +149,41 @@ export default function Home() {
           <button type="submit" disabled={isLoading || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
             {isLoading ? 'Starting...' : 'Start dialogue'}
           </button>
-      </form>
+        </form>
 
-      <section className="history" aria-labelledby="history-heading">
-        <div className="history-heading">
-          <h2 id="history-heading">Previous conversations</h2>
-          <span className="muted">{history.length}</span>
-        </div>
-        {historyError && <p className="error" role="alert">{historyError}</p>}
-        {!historyError && history.length === 0 && <p className="muted">No saved conversations yet.</p>}
-        {history.length > 0 && (
-          <ul className="history-list">
-            {history.map(conversation => (
-              <li key={conversation.id}>
-                <Link href={`/conversation/${conversation.id}`}>
-                  <span className="history-subject">{conversation.subject}</span>
-                  <span className="history-meta">
-                    {conversation.status} · {conversation.messageCount} messages · {new Date(conversation.updatedAt).toLocaleString()}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+        <aside className="history" aria-labelledby="history-heading">
+          <div className="history-heading">
+            <h2 id="history-heading">Previous conversations</h2>
+            <span className="muted">{history.length}</span>
+          </div>
+          {historyError && <p className="error" role="alert">{historyError}</p>}
+          {deleteError && <p className="error" role="alert">{deleteError}</p>}
+          {!historyError && history.length === 0 && <p className="muted">No saved conversations yet.</p>}
+          {history.length > 0 && (
+            <ul className="history-list">
+              {history.map(conversation => (
+                <li className="history-item" key={conversation.id}>
+                  <Link href={`/conversation/${conversation.id}`}>
+                    <span className="history-subject">{conversation.subject}</span>
+                    <span className="history-meta">
+                      {conversation.status} · {conversation.messageCount} messages · {new Date(conversation.updatedAt).toLocaleString()}
+                    </span>
+                  </Link>
+                  <button
+                    type="button"
+                    className="history-delete"
+                    aria-label={`${deletingConversationId === conversation.id ? 'Deleting' : 'Delete'} ${conversation.subject}`}
+                    disabled={conversation.status === 'generating' || deletingConversationId !== null}
+                    onClick={() => { void deleteConversation(conversation) }}
+                  >
+                    {deletingConversationId === conversation.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
+      </div>
       <footer>Powered by local Ollama models. Conversations are saved on this computer.</footer>
     </main>
   )
