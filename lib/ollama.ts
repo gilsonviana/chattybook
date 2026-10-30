@@ -74,7 +74,7 @@ export async function requireLocalModels(names: string[]) {
   }
 }
 
-export async function generateChatResponse(model: string, messages: Message[]): Promise<string> {
+export async function generateChatResponse(model: string, messages: Message[], maxTokens: number): Promise<string> {
   try {
     const response = await client(300000).chat({
       model,
@@ -82,7 +82,7 @@ export async function generateChatResponse(model: string, messages: Message[]): 
       stream: false,
       // GPT-OSS requires a thinking level rather than a boolean.
       think: model.startsWith('gpt-oss') ? 'low' : false,
-      options: { num_predict: 1024 },
+      options: { num_predict: maxTokens },
     })
     const content = response.message?.content?.trim()
     if (!content) {

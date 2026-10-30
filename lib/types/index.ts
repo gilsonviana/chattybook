@@ -1,4 +1,6 @@
 import type { Persona } from '../personas'
+import type { ConversationMode } from '../conversation-mode'
+import type { ResponseLength } from '../response-length'
 
 export interface Conversation {
   id: number
@@ -7,6 +9,8 @@ export interface Conversation {
   model2: string
   persona1: Persona
   persona2: Persona
+  mode: ConversationMode
+  responseLength: ResponseLength
   totalTurns: number
   status: string
   createdAt: string

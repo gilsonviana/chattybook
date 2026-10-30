@@ -134,6 +134,8 @@ test('default five turns generate ten alternating answers with correct perspecti
   assert.equal(created.data.totalTurns, 5)
   assert.equal(created.data.persona1, 'None')
   assert.equal(created.data.persona2, 'None')
+  assert.equal(created.data.mode, 'discussion')
+  assert.equal(created.data.responseLength, 'medium')
   assert.deepEqual(created.data.messages, [])
   const id = created.data.id
   for (let index = 0; index < 10; index++) {
@@ -184,6 +186,61 @@ test('independent personas persist and guide only their assigned agent', async (
   assert.equal(saved.data.persona2, 'Historian')
 })
 
+test('Q&A mode persists and makes every Agent 1 prompt question-only', async () => {
+  calls.length = 0
+  const created = await createConversation({ totalTurns: 2, mode: 'qa', responseLength: 'long' })
+  assert.equal(created.status, 201)
+  assert.equal(created.data.mode, 'qa')
+
+  for (let index = 0; index < 4; index++) {
+    const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: index })
+    assert.equal(result.status, 200, JSON.stringify(result.data))
+    const call = calls[index]
+    assert.equal(call.model, localModels[index % 2])
+    if (index % 2 === 0) {
+      assert.match(call.messages[0].content, /entire response must consist only of questions/)
+      assert.match(call.messages[0].content, /several thoughtful questions/)
+      assert.match(call.messages[1].content, /Respond only with questions/)
+      assert.equal(call.options.num_predict, 2048)
+    } else {
+      assert.match(call.messages[0].content, /constructively challenge ideas/)
+      assert.match(call.messages[0].content, /several paragraphs when useful/)
+      assert.doesNotMatch(call.messages[0].content, /Q&A mode is active/)
+      assert.match(call.messages[1].content, /opening perspective/)
+    }
+  }
+
+  const saved = await api(`/api/conversation/${created.data.id}`)
+  assert.equal(saved.data.mode, 'qa')
+  assert.equal(saved.data.messages.length, 4)
+})
+
+test('response lengths persist and set prompt guidance and Ollama token ceilings', async () => {
+  const lengths = [
+    { value: 'short', maxTokens: 256, prompt: /few sentences or one brief paragraph/ },
+    { value: 'medium', maxTokens: 1024, prompt: /moderate level of detail/ },
+    { value: 'long', maxTokens: 2048, prompt: /substantial detail/ },
+  ]
+
+  for (const length of lengths) {
+    calls.length = 0
+    const created = await createConversation({ totalTurns: 1, responseLength: length.value })
+    assert.equal(created.status, 201)
+    assert.equal(created.data.responseLength, length.value)
+
+    for (let index = 0; index < 2; index++) {
+      const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: index })
+      assert.equal(result.status, 200, JSON.stringify(result.data))
+      assert.equal(calls[index].model, localModels[index])
+      assert.equal(calls[index].options.num_predict, length.maxTokens)
+      assert.match(calls[index].messages[0].content, length.prompt)
+    }
+
+    const saved = await api(`/api/conversation/${created.data.id}`)
+    assert.equal(saved.data.responseLength, length.value)
+  }
+})
+
 test('concurrent and stale requests do not create duplicate messages', async () => {
   const { data } = await createConversation({ totalTurns: 1, model2: localModels[0] })
   const body = { conversationId: data.id, expectedMessageCount: 0 }
@@ -216,7 +273,7 @@ test('empty output and Ollama failures persist no fake answer and can be retried
 })
 
 test('invalid inputs, missing conversations, and uninstalled/cloud models are rejected', async () => {
-  for (const extra of [{ subject: ' ' }, { totalTurns: 0 }, { totalTurns: 2.5 }, { totalTurns: 101 }, { totalTurns: '5' }, { persona1: 'Oracle' }, { persona2: null }, { model1: 'not-installed' }, { model1: 'remote:cloud' }, { model1: 'remote-alias' }]) {
+  for (const extra of [{ subject: ' ' }, { totalTurns: 0 }, { totalTurns: 2.5 }, { totalTurns: 101 }, { totalTurns: '5' }, { persona1: 'Oracle' }, { persona2: null }, { mode: 'debate' }, { mode: null }, { responseLength: 'extra-long' }, { responseLength: null }, { model1: 'not-installed' }, { model1: 'remote:cloud' }, { model1: 'remote-alias' }]) {
     assert.equal((await createConversation(extra)).status, 400, JSON.stringify(extra))
   }
   assert.equal((await api('/api/chat', { conversationId: -1, expectedMessageCount: 0 })).status, 400)

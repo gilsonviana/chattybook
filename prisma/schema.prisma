@@ -14,6 +14,8 @@ model Conversation {
   model2        String
   persona1      String      @default("None")
   persona2      String      @default("None")
+  mode          String      @default("discussion")
+  responseLength String     @default("medium")
   totalTurns    Int
   status        String      @default("active")
   createdAt     DateTime    @default(now())

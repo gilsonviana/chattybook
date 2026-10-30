@@ -33,8 +33,11 @@ response from each agent: **10 generated responses** in total.
    ```
 5. Open [localhost:3000](http://localhost:3000). Confirm the Ollama connection and
    available models, enter a subject, choose a model and persona for each agent,
-   then select **Start dialogue**. Personas can be set independently to None,
-   Student, Professor, Minister, Politician, or Historian.
+   optionally enable Q&A mode and choose a response length, then select **Start
+   dialogue**. Personas can be set independently to None, Student, Professor,
+   Minister, Politician, or Historian. Response length applies to both agents.
+   In Q&A mode, Agent 1 is prompted to ask questions only on each turn; Agent 2
+   responds normally.
 
 Each answer appears as soon as its model request completes. The first request can
 take longer while Ollama loads model weights. Existing answers stay visible while
@@ -48,10 +51,13 @@ reloads persisted messages and resumes without adding a fake or empty answer.
 - `GET /api/ollama/models`: `{ models: string[] }` containing installed local model
   names, or `{ models: [], error }` (503). An empty successful list means no models
   are installed. Use **Refresh models** after installing a model or starting Ollama.
-- `POST /api/conversation`: `{ subject, model1, model2, persona1?, persona2?, totalTurns? }`.
+- `POST /api/conversation`: `{ subject, model1, model2, persona1?, persona2?, mode?, responseLength?, totalTurns? }`.
    Personas default to `None` and can be `Student`, `Professor`, `Minister`,
-   `Politician`, or `Historian`. `totalTurns` defaults to 5 and accepts integers
-   from 1 to 100. Returns a new conversation with no placeholder messages.
+   `Politician`, or `Historian`. Mode defaults to `discussion` and can be `qa`.
+   Response length defaults to `medium` and can be `short`, `medium`, or `long`.
+   These map to 256, 1024, and 2048 generated-token ceilings. `totalTurns`
+   defaults to 5 and accepts integers from 1 to 100. Returns a new conversation
+   with no placeholder messages.
 - `POST /api/chat`: `{ conversationId, expectedMessageCount }`. Generates and saves
   exactly one response. The server chooses the next agent, constructs history from
   that agent's perspective, and marks the conversation complete after both agents

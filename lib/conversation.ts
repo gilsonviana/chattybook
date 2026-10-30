@@ -1,7 +1,9 @@
 import { prisma } from './db'
 import { ApiError } from './api'
 import { generateChatResponse, requireLocalModels } from './ollama'
+import type { ConversationMode } from './conversation-mode'
 import { getPersonaInstruction, isPersona, type Persona } from './personas'
+import { isResponseLength, RESPONSE_LENGTH_SETTINGS, type ResponseLength } from './response-length'
 
 export interface ConversationOptions {
   subject: string
@@ -9,6 +11,8 @@ export interface ConversationOptions {
   model2: string
   persona1: Persona
   persona2: Persona
+  mode: ConversationMode
+  responseLength: ResponseLength
   totalTurns: number
 }
 
@@ -51,20 +55,31 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
     const model = agent === 1 ? conversation.model1 : conversation.model2
     const persona = agent === 1 ? conversation.persona1 : conversation.persona2
     const personaInstruction = isPersona(persona) ? getPersonaInstruction(persona) : ''
+    const isQaMode = agent === 1 && conversation.mode === 'qa'
+    const responseLength = isResponseLength(conversation.responseLength) ? conversation.responseLength : 'medium'
+    const lengthSettings = RESPONSE_LENGTH_SETTINGS[responseLength]
+    const lengthInstruction = isQaMode ? lengthSettings.qaInstruction : lengthSettings.instruction
     await requireLocalModels([model])
     const content = await generateChatResponse(model, [
       {
         role: 'system',
-        content: `You are Agent ${agent} in a dialogue with another AI agent about "${conversation.subject}". ${personaInstruction ? `${personaInstruction} ` : ''}${
-          agent === 1 ? 'Offer ideas and arguments.' : 'Explore a different perspective and constructively challenge ideas.'
-        } Respond directly to the other agent, building on the discussion. Keep each response to one or two short paragraphs. Do not write the other agent's response.`,
+        content: `You are Agent ${agent} in a dialogue with another AI agent about "${conversation.subject}". ${personaInstruction ? `${personaInstruction} ` : ''}${lengthInstruction} ${
+          isQaMode
+            ? 'Q&A mode is active. Ask Agent 2 concise, relevant questions about the subject. Your entire response must consist only of questions; do not include statements, answers, introductions, or explanations. Keep your selected persona voice, if any.'
+            : `${agent === 1 ? 'Offer ideas and arguments.' : 'Explore a different perspective and constructively challenge ideas.'} Respond directly to the other agent, building on the discussion.`
+        } Do not write the other agent's response.`,
       },
-      { role: 'user', content: `Discuss this subject: ${conversation.subject}. Agent 1, start with your opening perspective.` },
+      {
+        role: 'user',
+        content: isQaMode
+          ? `Ask Agent 2 one or more concise questions about this subject: ${conversation.subject}. Respond only with questions.`
+          : `Discuss this subject: ${conversation.subject}. Agent 1, start with your opening perspective.`,
+      },
       ...conversation.messages.map(message => ({
         role: message.speaker === speaker ? 'assistant' : 'user',
         content: message.content,
       })),
-    ])
+    ], lengthSettings.maxTokens)
 
     return await prisma.$transaction(async tx => {
       await tx.message.create({

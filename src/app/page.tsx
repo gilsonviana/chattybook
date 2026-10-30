@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatWindow } from '@/components/ChatWindow'
 import { AgentSelector } from '@/components/AgentSelector'
 import { getOllamaModels, requestJson } from '../../lib/client'
+import type { ConversationMode } from '../../lib/conversation-mode'
 import { type Persona } from '../../lib/personas'
+import type { ResponseLength } from '../../lib/response-length'
 import type { Conversation, Message } from '../../lib/types'
 import type { OllamaHealth } from '../../lib/ollama'
 
@@ -22,6 +24,8 @@ export default function Home() {
   const [model2, setModel2] = useState('')
   const [persona1, setPersona1] = useState<Persona>('None')
   const [persona2, setPersona2] = useState<Persona>('None')
+  const [mode, setMode] = useState<ConversationMode>('discussion')
+  const [responseLength, setResponseLength] = useState<ResponseLength>('medium')
   const busy = useRef(false)
 
   const refreshOllama = useCallback(() => {
@@ -66,7 +70,7 @@ export default function Home() {
       const active = await requestJson<Conversation>('/api/conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, model1, model2, persona1, persona2, totalTurns: turns }),
+        body: JSON.stringify({ subject, model1, model2, persona1, persona2, mode, responseLength, totalTurns: turns }),
       })
       setConversation(active)
       setMessages(active.messages)
@@ -128,6 +132,23 @@ export default function Home() {
           </label>
           <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
           <p className="muted">Each agent can use a different local model and persona.</p>
+          <button
+            type="button"
+            className="secondary mode-toggle"
+            aria-pressed={mode === 'qa'}
+            onClick={() => setMode(current => current === 'qa' ? 'discussion' : 'qa')}
+            disabled={isLoading}
+          >
+            Q&amp;A mode: {mode === 'qa' ? 'On' : 'Off'}
+          </button>
+          <label>
+            Response length
+            <select value={responseLength} onChange={event => setResponseLength(event.target.value as ResponseLength)} disabled={isLoading}>
+              <option value="short">Short</option>
+              <option value="medium">Medium</option>
+              <option value="long">Long</option>
+            </select>
+          </label>
           <label>
             Number of turns
             <input className="turns-input" type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} />
