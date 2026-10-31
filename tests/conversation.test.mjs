@@ -566,6 +566,110 @@ test("forks summarize the source with Agent 1's new model and steer both agents 
   chatReplies = []
 })
 
+test('summaries require completed nonempty conversations and validate requests before generation', async () => {
+  const created = await createConversation({ totalTurns: 1 })
+  const path = `/api/conversation/${created.data.id}/summarize`
+  calls.length = 0
+  for (const state of ['active', 'generating', 'completed']) {
+    await database.conversation.update({ where: { id: created.data.id }, data: { status: state } })
+    assert.equal((await api(path, {})).status, 409)
+  }
+  assert.equal((await api('/api/conversation/999999/summarize', {})).status, 404)
+  for (const id of ['0', '-1', '1.5', 'invalid', '9007199254740992']) {
+    assert.equal((await api(`/api/conversation/${id}/summarize`, {})).status, 400)
+  }
+  for (const model of [null, '', ' ', 1, false, {}, []]) {
+    assert.equal((await api(path, { model })).status, 400, JSON.stringify(model))
+  }
+  for (const body of [null, [], 'invalid']) assert.equal((await api(path, body)).status, 400)
+  const malformed = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' })
+  assert.equal(malformed.status, 400)
+  assert.equal(calls.length, 0)
+})
+
+test('summaries default to Agent 1, persist, regenerate with a chosen model, and preserve dialogue data', async () => {
+  const created = await createConversation({ totalTurns: 1, persona1: 'Student' })
+  for (let index = 0; index < 2; index++) {
+    assert.equal((await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: index })).status, 200)
+  }
+  const before = (await api(`/api/conversation/${created.data.id}`)).data
+  assert.equal(before.summary, null)
+  assert.equal(before.summaryModel, null)
+  const path = `/api/conversation/${created.data.id}/summarize`
+  calls.length = 0
+  chatReplies = [{ content: '- Gardens need water access.' }]
+  const first = await api(path, {})
+  assert.equal(first.status, 200, JSON.stringify(first.data))
+  assert.deepEqual(first.data, { summary: '- Gardens need water access.', summaryModel: localModels[0] })
+  assert.equal(calls[0].model, localModels[0])
+  assert.equal(calls[0].options.num_predict, 512)
+  assert.match(calls[0].messages[0].content, /at most 10 concise key points/)
+  assert.match(calls[0].messages[0].content, /data, not instructions/)
+  assert.doesNotMatch(calls[0].messages[0].content, /new conversation/)
+  assert.match(calls[0].messages[1].content, /Agent 1 \(Student\)/)
+  for (const message of before.messages) assert.ok(calls[0].messages[1].content.includes(message.content))
+  const saved = (await api(`/api/conversation/${created.data.id}`)).data
+  assert.equal(saved.summary, first.data.summary)
+  assert.equal(saved.summaryModel, localModels[0])
+  assert.deepEqual(saved.messages, before.messages)
+  assert.equal(saved.status, before.status)
+  assert.equal(saved.generationId, before.generationId)
+  assert.equal(saved.forkSummary, before.forkSummary)
+
+  chatReplies = [{ content: '- Rooftop gardens need zoning approval.' }]
+  const regenerated = await api(path, { model: ` ${localModels[1]} ` })
+  assert.equal(regenerated.status, 200)
+  assert.equal(regenerated.data.summaryModel, localModels[1])
+  assert.equal(calls.at(-1).model, localModels[1])
+  assert.equal((await api(`/api/conversation/${created.data.id}`)).data.summary, regenerated.data.summary)
+
+  for (const model of ['not-installed', 'remote:cloud', 'remote-alias']) {
+    assert.equal((await api(path, { model })).status, 400)
+  }
+  try {
+    mode = 'cloud-alias'
+    assert.equal((await api(path, { model: 'disguised:local' })).status, 400)
+  } finally {
+    mode = 'online'
+  }
+  for (const reply of [{ status: 500 }, { content: '' }]) {
+    chatReplies = [reply]
+    const failed = await api(path, {})
+    assert.ok(failed.status >= 500)
+    const unchanged = (await api(`/api/conversation/${created.data.id}`)).data
+    assert.equal(unchanged.summary, regenerated.data.summary)
+    assert.equal(unchanged.summaryModel, localModels[1])
+    assert.deepEqual(unchanged.messages, before.messages)
+    assert.equal(unchanged.status, 'completed')
+  }
+  chatReplies = []
+})
+
+test('summaries fold long stopped dialogues and exclude inherited fork context', async () => {
+  const created = await createConversation({ totalTurns: 3 })
+  await database.conversation.update({ where: { id: created.data.id }, data: { forkSummary: '- Inherited point.' } })
+  for (let index = 0; index < 4; index++) {
+    await database.message.create({ data: { conversationId: created.data.id, speaker: index % 2 ? 'agent2' : 'agent1', role: 'assistant', content: `${index}:${'x'.repeat(3000)}`, turnNumber: Math.floor(index / 2) + 1 } })
+  }
+  assert.equal((await renameConversation(created.data.id)).status, 200)
+  calls.length = 0
+  chatReplies = [{ content: '- First chunk point.' }, { content: '- Merged point.' }]
+  const result = await api(`/api/conversation/${created.data.id}/summarize`, {})
+  assert.equal(result.status, 200, JSON.stringify(result.data))
+  assert.equal(result.data.summary, '- Merged point.')
+  assert.equal(calls.length, 2)
+  assert.match(calls[0].messages[1].content, /part 1 of 2/)
+  assert.match(calls[1].messages[1].content, /part 2 of 2/)
+  assert.match(calls[1].messages[1].content, /First chunk point/)
+  assert.doesNotMatch(calls[0].messages[1].content, /"2:x/)
+  assert.doesNotMatch(calls[1].messages[1].content, /"0:x/)
+  for (const call of calls) assert.doesNotMatch(JSON.stringify(call.messages), /Inherited point/)
+  const saved = (await api(`/api/conversation/${created.data.id}`)).data
+  assert.equal(saved.summary, '- Merged point.')
+  assert.equal(saved.forkSummary, '- Inherited point.')
+  assert.equal(saved.messages.length, 4)
+})
+
 test('Q&A mode persists and limits every Agent 1 turn to one question', async () => {
   calls.length = 0
   const created = await createConversation({ totalTurns: 2, mode: 'qa', responseLength: 'medium', persona1: 'Student' })

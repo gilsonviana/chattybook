@@ -75,8 +75,16 @@ and a **Continue reading** section at the bottom links to each fork. Forking an
 empty conversation skips the summary. If summarization fails,
 no conversation is created. Forking requires the source's models to be installed
 locally.
+**Summarize** at the bottom of a conversation is enabled once it is completed
+(including a stopped dialogue with saved messages). Its joined arrow button opens
+the installed local-model menu, defaulting to Agent 1's model. The summary contains
+up to 10 concise key points from this conversation's messages, not its inherited
+fork context. The latest successful summary and model are saved and restored when
+reopening the conversation. Select **Summarize** again to regenerate; a failed
+attempt leaves the previous summary intact. Long transcripts use the same chunked
+approach as fork summaries, and the selected model must still be installed.
 **Export to PDF** on the conversation page opens the browser's print dialog with a
-print layout of the dialogue; choose **Save as PDF** as the destination.
+print layout of the dialogue and any saved summary; choose **Save as PDF** as the destination.
 If generation fails, the actual error is displayed; **Retry / continue dialogue**
 reloads persisted messages and resumes without adding a fake or empty answer.
 
@@ -135,8 +143,14 @@ compound requests but does not guarantee relevance or factual accuracy.
   exactly one response. The server chooses the next agent, constructs history from
   that agent's perspective, and marks the conversation complete after both agents
   have responded for every turn. Concurrent, stale, or completed requests get 409.
+- `POST /api/conversation/:id/summarize`: `{ model? }`. Defaults to the conversation's
+   Agent 1 model and returns `{ summary, summaryModel }`, saving both fields without
+   changing messages or completion status. Requires a completed, nonempty conversation
+   (409 otherwise). Invalid model/body/ID returns 400; missing conversations return
+   404. Generation failures leave any previously saved summary unchanged.
 - `GET /api/conversation/:id`: retrieves the saved conversation, nullable display
-   title, `devilsAdvocate`, nullable `forkedFromId`, nullable `forkSummary`,
+   title, `devilsAdvocate`, nullable `forkedFromId`, nullable `forkSummary`, nullable
+   `summary` and `summaryModel`,
    `forks` (`{ id, subject, title, status, createdAt }` for each conversation
    forked from it, oldest first), and ordered messages.
    Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`

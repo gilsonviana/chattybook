@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { requestJson } from '../../lib/client'
 import type { Conversation, Message } from '../../lib/types'
 import { ChatWindow } from './ChatWindow'
+import { ConversationSummary } from './ConversationSummary'
 
 async function generateDialogue(active: Conversation, update: (conversation: Conversation) => void, shouldStop: () => boolean) {
   let history = active.messages
@@ -210,6 +211,7 @@ export function ConversationView({ id }: { id: string }) {
               </ul>
             </nav>
           )}
+          <ConversationSummary key={conversation.id} conversation={conversation} disabled={isLoading || isStopping} />
         </>
       )}
     </main>

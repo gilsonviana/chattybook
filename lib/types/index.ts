@@ -16,6 +16,8 @@ export interface Conversation {
   devilsAdvocate: boolean
   forkedFromId: number | null
   forkSummary: string | null
+  summary: string | null
+  summaryModel: string | null
   forks: ConversationFork[]
   status: string
   createdAt: string
