@@ -1,4 +1,4 @@
-import { Ollama, type Message } from 'ollama'
+import { Ollama, type ChatRequest, type Message } from 'ollama'
 import { ApiError } from './api'
 
 function localHost(): string {
@@ -44,9 +44,9 @@ export async function checkOllamaHealth(): Promise<OllamaHealth> {
   }
 }
 
-export async function listOllamaModels(): Promise<string[]> {
+export async function listOllamaModels(signal?: AbortSignal): Promise<string[]> {
   try {
-    const { models } = await client(5000).list()
+    const { models } = await client(5000, signal).list()
     return models
       .filter(model => !model.name.includes(':cloud') &&
         !('remote_model' in model && model.remote_model) &&
@@ -57,14 +57,16 @@ export async function listOllamaModels(): Promise<string[]> {
   }
 }
 
-export async function requireLocalModels(names: string[]) {
-  const available = await listOllamaModels()
+export async function requireLocalModels(names: string[], signal?: AbortSignal) {
+  signal?.throwIfAborted()
+  const available = await listOllamaModels(signal)
   for (const name of new Set(names)) {
+    signal?.throwIfAborted()
     if (!available.includes(name)) {
       throw new ApiError(`Model "${name}" is not installed locally. Choose an available model or run ollama pull <model>.`, 400)
     }
     // Cloud aliases can have custom names; inspect their metadata as well.
-    const details = await client(5000).show({ model: name }).catch(error => {
+    const details = await client(5000, signal).show({ model: name }).catch(error => {
       throw connectionError(error)
     })
     if (('remote_model' in details && details.remote_model) ||
@@ -74,15 +76,17 @@ export async function requireLocalModels(names: string[]) {
   }
 }
 
-export async function generateChatResponse(model: string, messages: Message[], maxTokens: number, signal?: AbortSignal): Promise<string> {
+export async function generateChatResponse(model: string, messages: Message[], maxTokens: number, signal?: AbortSignal, settings?: Pick<ChatRequest, 'format'> & { temperature?: number }): Promise<string> {
   try {
+    signal?.throwIfAborted()
     const response = await client(300000, signal).chat({
       model,
       messages,
+      format: settings?.format,
       stream: false,
       // GPT-OSS requires a thinking level rather than a boolean.
       think: model.startsWith('gpt-oss') ? 'low' : false,
-      options: { num_predict: maxTokens },
+      options: { num_predict: maxTokens, ...(settings?.temperature !== undefined ? { temperature: settings.temperature } : {}) },
     })
     const content = response.message?.content?.trim()
     if (!content) {

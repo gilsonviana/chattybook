@@ -7,6 +7,7 @@ export interface Conversation {
   subject: string
   model1: string
   model2: string
+  reviewerModel: string | null
   persona1: Persona
   persona2: Persona
   mode: ConversationMode
@@ -36,6 +37,7 @@ export interface Message {
   speaker: 'agent1' | 'agent2'
   role: string
   content: string
+  reviewStatus: 'accepted' | 'rejected' | 'unchecked' | null
   turnNumber: number
   createdAt: string
 }

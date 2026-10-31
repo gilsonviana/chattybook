@@ -26,6 +26,7 @@ export default function Home() {
   const [turns, setTurns] = useState<number | ''>(5)
   const [model1, setModel1] = useState('')
   const [model2, setModel2] = useState('')
+  const [reviewerModel, setReviewerModel] = useState<string | null>(null)
   const [persona1, setPersona1] = useState<Persona>('None')
   const [persona2, setPersona2] = useState<Persona>('None')
   const [mode, setMode] = useState<ConversationMode>('qa')
@@ -38,6 +39,7 @@ export default function Home() {
       setModels(available)
       setModel1(current => available.includes(current) ? current : available[0] || '')
       setModel2(current => available.includes(current) ? current : available[1] || available[0] || '')
+      setReviewerModel(current => current && available.includes(current) ? current : null)
     }).catch(error => {
       setHealth(null)
       setModels([])
@@ -67,7 +69,7 @@ export default function Home() {
       const active = await requestJson<Conversation>('/api/conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, model1, model2, persona1, persona2, mode, responseLength, totalTurns: turns }),
+        body: JSON.stringify({ subject, model1, model2, reviewerModel: mode === 'qa' ? reviewerModel : null, persona1, persona2, mode, responseLength, totalTurns: turns }),
       })
       window.sessionStorage.setItem('chattybook:new-conversation', String(active.id))
       router.push(`/conversation/${active.id}`)
@@ -151,6 +153,15 @@ export default function Home() {
           <p className="muted">One turn includes a response from each agent. Default: 5 turns (10 responses).</p>
           <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
           <p className="muted">Each agent can use a different local model and persona.</p>
+          {mode === 'qa' && (
+            <label>
+              Review model
+              <select value={reviewerModel ?? ''} onChange={event => setReviewerModel(event.target.value || null)} disabled={isLoading || checking || !models.length}>
+                <option value="">Use Agent 1 model{model1 ? ` (${model1})` : ''}</option>
+                {models.map(model => <option key={model} value={model}>{model}</option>)}
+              </select>
+            </label>
+          )}
           <label>
             Response length
             <select value={responseLength} onChange={event => setResponseLength(event.target.value as ResponseLength)} disabled={isLoading}>

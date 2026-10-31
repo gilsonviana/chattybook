@@ -36,10 +36,14 @@ response from each agent: **10 generated responses** in total.
    optionally enable Q&A mode and choose a response length, then select **Start
    dialogue**. Personas can be set independently to None, Student, Professor,
    Minister, Politician, or Historian. Response length applies to both agents.
-   In Q&A mode, Agent 1 is prompted to ask questions only on each turn; Agent 2
-   responds normally.
+   In Q&A mode, Agent 1 asks one question per turn; Agent 2 responds normally.
+   The first question opens the subject. Follow-ups build on Agent 2's latest
+   answer, with connected branches to other aspects of the subject allowed.
+   **Review model** selects an installed local model to assess follow-ups; its
+   default follows Agent 1's model. Openers, Agent 2 replies, and discussion-mode
+   messages are not reviewed.
 
-Each answer appears as soon as its model request completes. The first request can
+Each answer appears when generation and any follow-up review finish. The first request can
 take longer while Ollama loads model weights. Existing answers stay visible while
 the next agent thinks. Conversations and completion status are saved in SQLite.
 Each conversation has its own `/conversation/{id}` URL, and the home page lists
@@ -49,19 +53,35 @@ dialogue** to resume it.
 If generation fails, the actual error is displayed; **Retry / continue dialogue**
 reloads persisted messages and resumes without adding a fake or empty answer.
 
+Q&A follow-ups are drafted, reviewed, and repaired at most once if needed. The
+review checks connection to the latest answer, conversational progress, and a
+single independently answerable question. Drafting, model checks, review, and
+repair share a one-minute budget. Review adds local inference calls and can take
+longer when switching models.
+
+Review is advisory: if the final question is rejected, review fails, or the budget
+expires, the latest question that passes the one-question format check is saved.
+Rejected or unverified follow-ups show a **Quality warning** that remains after
+reopening the conversation. If no valid question exists, generation fails and can
+be retried. Cancellation always prevents an in-flight question from being saved.
+The format check enforces one terminal question mark; semantic review can detect
+compound requests but does not guarantee relevance or factual accuracy.
+
 ## Checks and API
 
 - `GET /api/ollama/health`: `{ running, version }` (200), or `{ running: false, error }` (503).
 - `GET /api/ollama/models`: `{ models: string[] }` containing installed local model
   names, or `{ models: [], error }` (503). An empty successful list means no models
   are installed. Use **Refresh models** after installing a model or starting Ollama.
-- `POST /api/conversation`: `{ subject, model1, model2, persona1?, persona2?, mode?, responseLength?, totalTurns? }`.
+- `POST /api/conversation`: `{ subject, model1, model2, reviewerModel?, persona1?, persona2?, mode?, responseLength?, totalTurns? }`.
    Personas default to `None` and can be `Student`, `Professor`, `Minister`,
    `Politician`, or `Historian`. Mode defaults to `discussion` and can be `qa`.
    Response length defaults to `medium` and can be `short`, `medium`, or `long`.
    These map to 256, 1024, and 2048 generated-token ceilings. `totalTurns`
    defaults to 5 and accepts integers from 1 to 100. Returns a new conversation
-   with no placeholder messages.
+   with no placeholder messages. `reviewerModel` is an installed local model name
+   or `null` (the default, using Agent 1's model). Review has a separate 256-token
+   ceiling. Existing conversations use the same default without rewriting history.
 - `GET /api/conversation`: returns newest-first conversation summaries with IDs,
   subjects, status, timestamps, and message counts.
 - `POST /api/chat`: `{ conversationId, expectedMessageCount }`. Generates and saves
@@ -69,12 +89,16 @@ reloads persisted messages and resumes without adding a fake or empty answer.
   that agent's perspective, and marks the conversation complete after both agents
   have responded for every turn. Concurrent, stale, or completed requests get 409.
 - `GET /api/conversation/:id`: retrieves the saved conversation and ordered messages.
+   Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`
+   when review does not apply or the message predates review support.
 
 If Ollama is unavailable, start it locally. If no models appear, run `ollama list`
 and install a chat-capable model. Model, connection, and database errors are
 reported separately rather than being replaced with an "Ollama not connected"
 message. Requests time out after 5 seconds for connection/model checks and 5
-minutes for generation.
+minutes for generation outside Q&A follow-ups. Each Q&A follow-up instead has one
+shared minute for model work; database persistence occurs afterward. A timeout
+before any valid question exists returns 504 without advancing the conversation.
 
 ## Validation
 
@@ -87,4 +111,7 @@ npm test
 controlled local Ollama-compatible fixture and a temporary SQLite database. It
 covers default five-turn dialogues, history/agent ordering, persisted completion,
 validation, concurrency, retries, empty output, offline health, and model listing.
+It also covers reviewer selection, follow-up grounding prompts, bounded repairs,
+advisory fallback, strict verdict parsing, cancellation at every review stage,
+and the real one-minute aggregate deadline (so the suite takes over a minute).
 The fixture does not download models or touch your conversation database.

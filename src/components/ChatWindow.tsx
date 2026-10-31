@@ -34,6 +34,11 @@ export function ChatWindow({ subject, messages, isLoading, totalTurns, persona1,
         <article key={message.id} className={`message ${message.speaker}`}>
           <h3>Agent {message.speaker === 'agent1' ? '1' : '2'} ({message.speaker === 'agent1' ? persona1 : persona2}) - {message.speaker === 'agent1' ? model1 : model2} <span>Turn {message.turnNumber}</span></h3>
           <p>{message.content}</p>
+          {(message.reviewStatus === 'rejected' || message.reviewStatus === 'unchecked') && (
+            <p className="review-warning" role="note">
+              {message.reviewStatus === 'rejected' ? 'Quality warning: follow-up did not pass review.' : 'Quality warning: follow-up could not be verified.'}
+            </p>
+          )}
         </article>
       ))}
       {isLoading && <p className="thinking" role="status">Agent {messages.length % 2 + 1} ({messages.length % 2 === 0 ? persona1 : persona2}) is thinking... Loading a local model can take a moment.</p>}

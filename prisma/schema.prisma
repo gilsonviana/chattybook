@@ -12,6 +12,7 @@ model Conversation {
   subject       String
   model1        String
   model2        String
+  reviewerModel String?
   persona1      String      @default("None")
   persona2      String      @default("None")
   mode          String      @default("discussion")
@@ -30,6 +31,7 @@ model Message {
   speaker       String
   role          String
   content       String
+  reviewStatus  String?
   turnNumber    Int
   createdAt     DateTime    @default(now())
 

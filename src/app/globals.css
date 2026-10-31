@@ -29,6 +29,8 @@ h1, h2, h3, p { margin: 0; }
 .home-layout { display: grid; grid-template-columns: minmax(230px, .8fr) minmax(0, 1.8fr); grid-template-areas: "history setup"; gap: 20px; align-items: start; }
 .setup { padding: 28px; display: grid; gap: 20px; }
 .home-layout .setup { grid-area: setup; margin-bottom: 0; }
+.setup > label { min-width: 0; }
+.setup > label select { min-width: 0; max-width: 100%; }
 .subject-row { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
 .subject-row > label { flex: 1 1 220px; min-width: 0; }
 .subject-row > button { flex: 0 0 auto; width: 112px; min-height: 49px; padding: 11px 12px; }
@@ -76,6 +78,7 @@ h1, h2, h3, p { margin: 0; }
 .message h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: .85rem; margin-bottom: 8px; }
 .message h3 span { flex: 0 0 auto; color: var(--muted); font-size: .75rem; font-weight: 400; white-space: nowrap; }
 .message p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message .review-warning { margin-top: 10px; padding-top: 8px; border-top: 1px solid currentColor; color: #805000; font-size: .85rem; }
 .thinking, .conversation-empty { margin-inline: 24px; }
 .thinking { color: var(--muted); font-size: .9rem; }
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
@@ -100,6 +103,7 @@ h1, h2, h3, p { margin: 0; }
   .eyebrow { color: #9ab6ff; }
   .message { border-color: #3d5a80; background: #233c61; color: #e1edff; box-shadow: 0 2px 8px #0000001a; }
   .message.agent2 { border-color: #654d83; background: #422f5d; color: #f2e8ff; }
+  .message .review-warning { color: #ffd18a; }
   .error { background: #41202b; color: #ffcad3; }
   .history-menu-delete { background: #41202b; color: #ffcad3; border-color: #a04a5a; }
   .history-menu-delete:hover:not(:disabled) { background: #5a2835; }
