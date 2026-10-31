@@ -23,6 +23,7 @@ export interface ConversationSummary {
   id: number
   subject: string
   title: string | null
+  reviewerModel: string | null
   status: string
   persona1: string
   persona2: string

@@ -276,6 +276,7 @@ export default function Home() {
                       {[
                         ...(conversation.status === 'generating' ? ['Generating'] : []),
                         ...[conversation.persona1, conversation.persona2].filter(persona => persona !== 'None'),
+                        ...(conversation.reviewerModel ? [`Reviewer: ${conversation.reviewerModel}`] : []),
                         conversation.responseLength.charAt(0).toUpperCase() + conversation.responseLength.slice(1),
                       ].join(' · ')}
                     </span>

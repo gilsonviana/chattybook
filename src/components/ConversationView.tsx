@@ -128,6 +128,7 @@ export function ConversationView({ id }: { id: string }) {
         <>
           <ChatWindow
             title={conversation.title ?? conversation.subject}
+            reviewerModel={conversation.reviewerModel}
             messages={messages}
             isLoading={isLoading}
             totalTurns={conversation.totalTurns}

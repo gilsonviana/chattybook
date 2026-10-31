@@ -13,6 +13,7 @@ export async function GET() {
         id: true,
         subject: true,
         title: true,
+        reviewerModel: true,
         status: true,
         persona1: true,
         persona2: true,
