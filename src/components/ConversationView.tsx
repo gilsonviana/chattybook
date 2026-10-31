@@ -6,15 +6,16 @@ import { requestJson } from '../../lib/client'
 import type { Conversation, Message } from '../../lib/types'
 import { ChatWindow } from './ChatWindow'
 
-async function generateDialogue(active: Conversation, update: (conversation: Conversation) => void) {
+async function generateDialogue(active: Conversation, update: (conversation: Conversation) => void, shouldStop: () => boolean) {
   let history = active.messages
   let current = active
-  while (history.length < current.totalTurns * 2) {
+  while (!shouldStop() && history.length < current.totalTurns * 2) {
     const result = await requestJson<{ allMessages: Message[]; completed: boolean }>('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversationId: current.id, expectedMessageCount: history.length }),
     })
+    if (shouldStop()) return
     history = result.allMessages
     current = { ...current, messages: history, status: result.completed ? 'completed' : 'active' }
     update(current)
@@ -25,9 +26,11 @@ export function ConversationView({ id }: { id: string }) {
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isStopping, setIsStopping] = useState(false)
   const [error, setError] = useState('')
   const loaded = useRef(false)
   const busy = useRef(false)
+  const stopRequested = useRef(false)
 
   useEffect(() => {
     if (loaded.current) return
@@ -47,9 +50,11 @@ export function ConversationView({ id }: { id: string }) {
             await generateDialogue(active, updated => {
               setConversation(updated)
               setMessages(updated.messages)
-            })
+            }, () => stopRequested.current)
           } catch (generationError) {
-            setError(generationError instanceof Error ? generationError.message : 'Could not continue the dialogue.')
+            if (!stopRequested.current) {
+              setError(generationError instanceof Error ? generationError.message : 'Could not continue the dialogue.')
+            }
           } finally {
             busy.current = false
             setIsLoading(false)
@@ -63,23 +68,46 @@ export function ConversationView({ id }: { id: string }) {
   }, [id])
 
   async function retryConversation() {
-    if (busy.current || !conversation) return
+    if (busy.current || isStopping || !conversation) return
     busy.current = true
+    stopRequested.current = false
     setIsLoading(true)
     setError('')
     try {
       const active = await requestJson<Conversation>(`/api/conversation/${id}`)
       setConversation(active)
       setMessages(active.messages)
+      if (stopRequested.current) return
       await generateDialogue(active, updated => {
         setConversation(updated)
         setMessages(updated.messages)
-      })
+      }, () => stopRequested.current)
     } catch (retryError) {
-      setError(retryError instanceof Error ? retryError.message : 'Could not continue the dialogue.')
+      if (!stopRequested.current) {
+        setError(retryError instanceof Error ? retryError.message : 'Could not continue the dialogue.')
+      }
     } finally {
       busy.current = false
       setIsLoading(false)
+    }
+  }
+
+  async function stopConversation() {
+    if (!conversation || isStopping) return
+    stopRequested.current = true
+    setIsStopping(true)
+    setError('')
+    try {
+      await requestJson(`/api/conversation/${id}`, { method: 'PATCH' })
+      setConversation(current => current ? { ...current, status: 'completed' } : current)
+      setIsLoading(false)
+      const stopped = await requestJson<Conversation>(`/api/conversation/${id}`)
+      setConversation(stopped)
+      setMessages(stopped.messages)
+    } catch (stopError) {
+      setError(stopError instanceof Error ? stopError.message : 'Could not stop the dialogue.')
+    } finally {
+      setIsStopping(false)
     }
   }
 
@@ -106,7 +134,14 @@ export function ConversationView({ id }: { id: string }) {
             persona1={conversation.persona1}
             persona2={conversation.persona2}
           />
-          {!isLoading && conversation.status !== 'completed' && (
+          {(isStopping || ((isLoading || conversation.status === 'generating') && conversation.status !== 'completed')) && (
+            <div className="actions">
+              <button type="button" onClick={() => void stopConversation()} disabled={isStopping}>
+                {isStopping ? 'Stopping...' : 'Stop'}
+              </button>
+            </div>
+          )}
+          {!isLoading && !isStopping && conversation.status === 'active' && (
             <div className="actions">
               <button onClick={() => void retryConversation()}>Retry / continue dialogue</button>
             </div>
