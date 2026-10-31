@@ -121,21 +121,36 @@ export default function Home() {
 
       <div className="home-layout">
         <form className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
-          <label>
-            Discussion subject
-            <input value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
-          </label>
+          <div className="subject-row">
+            <label>
+              Discussion subject
+              <input value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
+            </label>
+            <button type="submit" disabled={isLoading || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
+              {isLoading ? 'Starting...' : 'Start'}
+            </button>
+          </div>
+          <div className="dialogue-options">
+            <label>
+              Number of turns
+              <input className="turns-input" type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} />
+            </label>
+            <button
+              type="button"
+              className="mode-toggle"
+              role="switch"
+              aria-checked={mode === 'qa'}
+              onClick={() => setMode(current => current === 'qa' ? 'discussion' : 'qa')}
+              disabled={isLoading}
+            >
+              <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
+              <span>Q&amp;A mode</span>
+              <span className="mode-toggle-state" aria-hidden="true">{mode === 'qa' ? 'On' : 'Off'}</span>
+            </button>
+          </div>
+          <p className="muted">One turn includes a response from each agent. Default: 5 turns (10 responses).</p>
           <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
           <p className="muted">Each agent can use a different local model and persona.</p>
-          <button
-            type="button"
-            className="secondary mode-toggle"
-            aria-pressed={mode === 'qa'}
-            onClick={() => setMode(current => current === 'qa' ? 'discussion' : 'qa')}
-            disabled={isLoading}
-          >
-            Q&amp;A mode: {mode === 'qa' ? 'On' : 'Off'}
-          </button>
           <label>
             Response length
             <select value={responseLength} onChange={event => setResponseLength(event.target.value as ResponseLength)} disabled={isLoading}>
@@ -144,14 +159,6 @@ export default function Home() {
               <option value="long">Long</option>
             </select>
           </label>
-          <label>
-            Number of turns
-            <input className="turns-input" type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} />
-          </label>
-          <p className="muted">One turn includes a response from each agent. Default: 5 turns (10 responses).</p>
-          <button type="submit" disabled={isLoading || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
-            {isLoading ? 'Starting...' : 'Start dialogue'}
-          </button>
         </form>
 
         <aside className="history" aria-labelledby="history-heading">

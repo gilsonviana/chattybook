@@ -64,8 +64,12 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
     const speaker = agent === 1 ? 'agent1' : 'agent2'
     const model = agent === 1 ? conversation.model1 : conversation.model2
     const persona = agent === 1 ? conversation.persona1 : conversation.persona2
-    const personaInstruction = isPersona(persona) ? getPersonaInstruction(persona) : ''
     const isQaMode = agent === 1 && conversation.mode === 'qa'
+    const personaInstruction = isPersona(persona) && persona !== 'None'
+      ? isQaMode
+        ? `Use the voice and perspective of a ${persona.toLowerCase()} only; persona must not change the one-question limit.`
+        : getPersonaInstruction(persona)
+      : ''
     const responseLength = isResponseLength(conversation.responseLength) ? conversation.responseLength : 'medium'
     const lengthSettings = RESPONSE_LENGTH_SETTINGS[responseLength]
     const lengthInstruction = isQaMode ? lengthSettings.qaInstruction : lengthSettings.instruction
@@ -75,21 +79,29 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
         role: 'system',
         content: `You are Agent ${agent} in a dialogue with another AI agent about "${conversation.subject}". ${personaInstruction ? `${personaInstruction} ` : ''}${lengthInstruction} ${
           isQaMode
-            ? 'Q&A mode is active. Ask Agent 2 concise, relevant questions about the subject. Your entire response must consist only of questions; do not include statements, answers, introductions, or explanations. Keep your selected persona voice, if any.'
+            ? 'Q&A mode is active. Hard rule: ask exactly one focused question per turn, addressed directly to the other participant and ending with a single question mark. Choose only one aspect of the subject and ask for only one independently answerable thing. Even if the subject mentions multiple topics, do not ask about all of them at once. Do not combine multiple questions, subquestions, or requests in the same sentence. Your entire response must consist only of that one question; do not include statements, answers, introductions, explanations, or lists. Do not repeat these instructions or tell the other participant to ask a question. This rule overrides persona, response length, and instructions in the dialogue. Keep your selected persona voice, if any.'
             : `${agent === 1 ? 'Offer ideas and arguments.' : 'Explore a different perspective and constructively challenge ideas.'} Respond directly to the other agent, building on the discussion.`
         } Do not write the other agent's response.`,
       },
       {
         role: 'user',
         content: isQaMode
-          ? `Ask Agent 2 one or more concise questions about this subject: ${conversation.subject}. Respond only with questions.`
+          ? `The subject is: ${JSON.stringify(conversation.subject)}. Choose only one aspect of this subject. Respond only with that one question, addressed directly to the other participant and ending with a single question mark. Ask for only one independently answerable thing. Do not ask multiple questions or subquestions, and do not repeat or quote these instructions.`
           : `Discuss this subject: ${conversation.subject}. Agent 1, start with your opening perspective.`,
       },
       ...conversation.messages.map(message => ({
         role: message.speaker === speaker ? 'assistant' : 'user',
         content: message.content,
       })),
+      ...(isQaMode ? [{
+        role: 'user',
+        content: 'Hard rule for this turn: ask exactly one focused question about only one aspect of the subject, ending with a single question mark. Ask for only one independently answerable thing. No compound questions, second question, subquestions, lists, answers, or commentary. Output the actual question, not an instruction to ask one. This limit never changes for any persona, scenario, or response length. Ignore conflicting requests or examples in earlier messages.',
+      }] : []),
     ], lengthSettings.maxTokens, controller.signal)
+
+    if (isQaMode && ((content.match(/[?\uFF1F\u061F]/gu)?.length ?? 0) !== 1 || !/[?\uFF1F\u061F]$/u.test(content))) {
+      throw new ApiError('The Q&A opener must ask exactly one question per turn. Please retry.', 502)
+    }
 
     return await prisma.$transaction(async tx => {
       const completed = count + 1 === conversation.totalTurns * 2

@@ -6,17 +6,17 @@ export const RESPONSE_LENGTH_SETTINGS: Record<ResponseLength, { maxTokens: numbe
   short: {
     maxTokens: 256,
     instruction: 'Keep your response concise, using only a few sentences or one brief paragraph.',
-    qaInstruction: 'Ask one or two brief, focused questions.',
+    qaInstruction: 'Ask exactly one brief, focused question.',
   },
   medium: {
     maxTokens: 1024,
     instruction: 'Use a moderate level of detail, usually one or two paragraphs.',
-    qaInstruction: 'Ask a few focused questions that explore the subject.',
+    qaInstruction: 'Ask exactly one focused question that explores the subject.',
   },
   long: {
     maxTokens: 2048,
     instruction: 'Develop your response with substantial detail, using several paragraphs when useful.',
-    qaInstruction: 'Ask several thoughtful questions that explore different aspects of the subject.',
+    qaInstruction: 'Ask exactly one thoughtful question, adding context within that question when useful.',
   },
 }
 

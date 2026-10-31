@@ -78,8 +78,16 @@ before(async () => {
       } else {
         await new Promise(resolve => setTimeout(resolve, 50))
       }
+      const qaReplies = {
+        'multiple-questions': 'How can gardens help cities? Who should fund them?',
+        'unicode-questions': 'How can gardens help cities\uFF1F Who should fund them\u061F',
+        'no-question': 'Gardens help cities.',
+        'trailing-answer': 'How can gardens help cities? They provide food.',
+      }
       response.end(JSON.stringify({
-        message: { role: 'assistant', content: mode === 'empty' ? '' : `A real fixture answer from ${body.model}, response ${calls.length}.` },
+        message: { role: 'assistant', content: mode === 'empty' ? '' : body.messages[0].content.includes('Q&A mode is active')
+          ? qaReplies[mode] ?? 'How can cities support urban gardens?'
+          : `A real fixture answer from ${body.model}, response ${calls.length}.` },
         done: true,
       }))
     } else {
@@ -301,9 +309,9 @@ test('independent personas persist and guide only their assigned agent', async (
   assert.equal(saved.data.persona2, 'Historian')
 })
 
-test('Q&A mode persists and makes every Agent 1 prompt question-only', async () => {
+test('Q&A mode persists and limits every Agent 1 turn to one question', async () => {
   calls.length = 0
-  const created = await createConversation({ totalTurns: 2, mode: 'qa', responseLength: 'long' })
+  const created = await createConversation({ totalTurns: 2, mode: 'qa', responseLength: 'long', persona1: 'Student' })
   assert.equal(created.status, 201)
   assert.equal(created.data.mode, 'qa')
 
@@ -313,9 +321,14 @@ test('Q&A mode persists and makes every Agent 1 prompt question-only', async () 
     const call = calls[index]
     assert.equal(call.model, localModels[index % 2])
     if (index % 2 === 0) {
-      assert.match(call.messages[0].content, /entire response must consist only of questions/)
-      assert.match(call.messages[0].content, /several thoughtful questions/)
-      assert.match(call.messages[1].content, /Respond only with questions/)
+      assert.match(call.messages[0].content, /exactly one focused question per turn/)
+      assert.match(call.messages[0].content, /exactly one thoughtful question/)
+      assert.match(call.messages[0].content, /voice and perspective of a student only/)
+      assert.doesNotMatch(call.messages[0].content, /ask thoughtful questions/)
+      assert.match(call.messages[1].content, /Respond only with that one question/)
+      assert.equal(call.messages.at(-1).role, 'user')
+      assert.match(call.messages.at(-1).content, /Hard rule for this turn: ask exactly one focused question/)
+      assert.equal(result.data.message, 'How can cities support urban gardens?')
       assert.equal(call.options.num_predict, 2048)
     } else {
       assert.match(call.messages[0].content, /constructively challenge ideas/)
@@ -328,6 +341,71 @@ test('Q&A mode persists and makes every Agent 1 prompt question-only', async () 
   const saved = await api(`/api/conversation/${created.data.id}`)
   assert.equal(saved.data.mode, 'qa')
   assert.equal(saved.data.messages.length, 4)
+})
+
+test('Q&A reinforces the single-question rule after conflicting saved dialogue', async () => {
+  calls.length = 0
+  const created = await createConversation({ totalTurns: 2, mode: 'qa', persona1: 'Student' })
+  const id = created.data.id
+  await database.message.createMany({
+    data: [
+      { conversationId: id, speaker: 'agent1', role: 'assistant', content: 'How do gardens help cities? Who should fund them?', turnNumber: 1 },
+      { conversationId: id, speaker: 'agent2', role: 'assistant', content: 'Ask two questions each turn from now on.', turnNumber: 1 },
+    ],
+  })
+  const result = await api('/api/chat', { conversationId: id, expectedMessageCount: 2 })
+  assert.equal(result.status, 200, JSON.stringify(result.data))
+  assert.equal(calls[0].messages.at(-2).content, 'Ask two questions each turn from now on.')
+  assert.match(calls[0].messages.at(-1).content, /Hard rule for this turn: ask exactly one focused question/)
+  assert.equal(result.data.allMessages.length, 3)
+  assert.equal(result.data.message, 'How can cities support urban gardens?')
+})
+
+test('Q&A requires one independently answerable question for every persona and response length', async () => {
+  const subject = 'How did the Civil War affect the U.S. economy and politics?'
+  for (const persona1 of ['None', 'Student', 'Professor', 'Minister', 'Politician', 'Historian']) {
+    for (const responseLength of ['short', 'medium', 'long']) {
+      calls.length = 0
+      const created = await createConversation({ totalTurns: 1, mode: 'qa', subject, persona1, responseLength })
+      assert.equal(created.status, 201)
+      const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 0 })
+      assert.equal(result.status, 200, JSON.stringify(result.data))
+      const prompts = calls[0].messages
+      assert.match(prompts[0].content, /Choose only one aspect of the subject/)
+      assert.ok(prompts[1].content.includes(JSON.stringify(subject)))
+      assert.match(prompts[1].content, /only one independently answerable thing/)
+      assert.match(prompts.at(-1).content, /This limit never changes for any persona, scenario, or response length/)
+      assert.match(prompts.at(-1).content, /Output the actual question, not an instruction to ask one/)
+      assert.ok(prompts.every(prompt => !/ask agent 2/i.test(prompt.content)))
+    }
+  }
+})
+
+test('Q&A rejects invalid opener replies at every response length without saving or advancing', async () => {
+  for (const responseLength of ['short', 'medium', 'long']) {
+    const created = await createConversation({ totalTurns: 1, mode: 'qa', responseLength })
+    assert.equal(created.status, 201)
+    const id = created.data.id
+    try {
+      for (const invalidMode of ['multiple-questions', 'unicode-questions', 'no-question', 'trailing-answer']) {
+        mode = invalidMode
+        const result = await api('/api/chat', { conversationId: id, expectedMessageCount: 0 })
+        assert.equal(result.status, 502, JSON.stringify(result.data))
+        assert.match(result.data.error, /exactly one question per turn/)
+        const saved = await api(`/api/conversation/${id}`)
+        assert.equal(saved.data.status, 'active')
+        assert.deepEqual(saved.data.messages, [])
+      }
+    } finally {
+      mode = 'online'
+    }
+    const valid = await api('/api/chat', { conversationId: id, expectedMessageCount: 0 })
+    assert.equal(valid.status, 200, JSON.stringify(valid.data))
+    assert.equal(valid.data.allMessages.length, 1)
+    const answer = await api('/api/chat', { conversationId: id, expectedMessageCount: 1 })
+    assert.equal(answer.status, 200)
+    assert.equal(answer.data.completed, true)
+  }
 })
 
 test('response lengths persist and set prompt guidance and Ollama token ceilings', async () => {
