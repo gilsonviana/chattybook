@@ -36,8 +36,8 @@ h1, h2, h3, p { margin: 0; }
 .subject-row > button { flex: 0 0 auto; width: 112px; min-height: 49px; padding: 11px 12px; }
 .agent-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .agent-config { display: grid; gap: 14px; }
+.length-turns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .dialogue-options { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
-.dialogue-options > label { flex: 0 1 140px; }
 .dialogue-toggles { display: grid; justify-items: start; gap: 4px; }
 .mode-toggle { justify-self: start; display: inline-flex; align-items: center; gap: 12px; min-height: 44px; padding: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; }
 .mode-toggle:hover:not(:disabled) { background: transparent; }
@@ -48,7 +48,6 @@ h1, h2, h3, p { margin: 0; }
 .mode-toggle:hover:not(:disabled) .mode-toggle-track { background: var(--text); }
 .mode-toggle[aria-checked="true"]:hover:not(:disabled) .mode-toggle-track { background: #2347ae; }
 .mode-toggle-state { min-width: 24px; color: var(--muted); font-size: .85rem; font-weight: 400; }
-.turns-input { max-width: 140px; }
 .history { grid-area: history; min-width: 0; padding: 22px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 8px 30px #17243b08; }
 .history-heading { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
 .history-heading h2 { font-size: 1.15rem; }
@@ -117,7 +116,7 @@ h1, h2, h3, p { margin: 0; }
 @media (max-width: 600px) {
   .app { padding: 24px 12px; }
   .home-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "history"; }
-  .agent-selectors { grid-template-columns: 1fr; }
+  .agent-selectors, .length-turns { grid-template-columns: 1fr; }
   .connection { flex-direction: column; align-items: stretch; }
   .setup, .history { padding: 18px; }
   .message { max-width: calc(100% - 36px); margin-left: 18px; }
