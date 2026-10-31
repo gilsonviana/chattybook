@@ -97,7 +97,8 @@ export function ConversationSummary({ conversation, disabled }: { conversation: 
           }}
         >
           <button type="button" className="summary-generate" disabled={!canSummarize} onClick={() => void summarize()}>
-            {isSummarizing ? 'Summarizing...' : 'Summarize'}
+            <span>{isSummarizing ? 'Summarizing...' : 'Summarize'}</span>
+            <span className="summary-button-model">{model}{model === conversation.model1 ? ' (Agent 1)' : ''}</span>
           </button>
           <button
             type="button"
@@ -158,7 +159,6 @@ export function ConversationSummary({ conversation, disabled }: { conversation: 
             </div>
           )}
         </div>
-        <p className="muted summary-selected-model">{model}{model === conversation.model1 ? ' (Agent 1)' : ''}</p>
         {isSummarizing && <p className="muted" role="status">Generating summary...</p>}
         {modelsLoading && <p className="muted" role="status">Loading summary models...</p>}
         {!modelsLoading && (modelsError || !models.includes(model)) && (

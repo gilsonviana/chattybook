@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { requestJson } from '../../lib/client'
 import type { Conversation, Message } from '../../lib/types'
 import { ChatWindow } from './ChatWindow'
@@ -34,6 +35,134 @@ export function ConversationView({ id }: { id: string }) {
   const loaded = useRef(false)
   const busy = useRef(false)
   const stopRequested = useRef(false)
+  const page = useRef<HTMLElement>(null)
+  const chatEnd = useRef<HTMLDivElement>(null)
+  const autoFollow = useRef(true)
+  const programmaticScroll = useRef(false)
+  const [scrollControls, setScrollControls] = useState({ top: false, bottom: false })
+  const hasConversation = conversation !== null
+
+  function scrollToPosition(top: number) {
+    const destination = Math.max(0, Math.min(top, document.documentElement.scrollHeight - window.innerHeight))
+    programmaticScroll.current = Math.abs(window.scrollY - destination) > 1
+    window.scrollTo({
+      top: destination,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    })
+  }
+
+  function jumpToLatest() {
+    if (!chatEnd.current) return
+    autoFollow.current = true
+    scrollToPosition(window.scrollY + chatEnd.current.getBoundingClientRect().bottom - window.innerHeight)
+  }
+
+  const followLatest = useEffectEvent(() => {
+    if (autoFollow.current) jumpToLatest()
+  })
+
+  useEffect(() => {
+    autoFollow.current = true
+    let previousY = window.scrollY
+    let touchY: number | null = null
+    let frame = 0
+    let scrollTimer: ReturnType<typeof setTimeout> | undefined
+
+    function pauseFollow() {
+      autoFollow.current = false
+      if (programmaticScroll.current) {
+        programmaticScroll.current = false
+        window.scrollTo({ top: window.scrollY, behavior: 'instant' })
+      }
+    }
+
+    function updateControls() {
+      frame = 0
+      const threshold = window.innerHeight / 2
+      const endpoint = chatEnd.current
+      const top = !!endpoint && window.scrollY > threshold
+      const bottom = !!endpoint && endpoint.getBoundingClientRect().bottom - window.innerHeight > threshold
+      setScrollControls(current => current.top === top && current.bottom === bottom ? current : { top, bottom })
+    }
+
+    function scheduleUpdate() {
+      if (!frame) frame = window.requestAnimationFrame(updateControls)
+    }
+
+    function finishScroll() {
+      programmaticScroll.current = false
+      clearTimeout(scrollTimer)
+    }
+
+    function onScroll() {
+      if (!programmaticScroll.current && window.scrollY < previousY - 1) pauseFollow()
+      previousY = window.scrollY
+      clearTimeout(scrollTimer)
+      scrollTimer = setTimeout(finishScroll, 180)
+      scheduleUpdate()
+    }
+
+    function onWheel(event: WheelEvent) {
+      if (!event.ctrlKey && event.deltaY < 0) pauseFollow()
+    }
+
+    function onTouchStart(event: TouchEvent) {
+      touchY = event.touches[0]?.clientY ?? null
+    }
+
+    function onTouchMove(event: TouchEvent) {
+      const nextY = event.touches[0]?.clientY ?? null
+      if (touchY !== null && nextY !== null && nextY > touchY) pauseFollow()
+      touchY = nextY
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, button, [role="menu"], [contenteditable="true"]')) return
+      if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home' || (event.key === ' ' && event.shiftKey)) pauseFollow()
+    }
+
+    function onPointerDown(event: PointerEvent) {
+      if (event.clientX >= document.documentElement.clientWidth) {
+        programmaticScroll.current = false
+        window.scrollTo({ top: window.scrollY, behavior: 'instant' })
+      }
+    }
+
+    function onResize() {
+      previousY = window.scrollY
+      scheduleUpdate()
+    }
+
+    const observer = new ResizeObserver(onResize)
+    if (page.current) observer.observe(page.current)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('scrollend', finishScroll)
+    window.addEventListener('resize', onResize)
+    window.addEventListener('wheel', onWheel, { passive: true })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchmove', onTouchMove, { passive: true })
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointerdown', onPointerDown)
+    scheduleUpdate()
+    return () => {
+      observer.disconnect()
+      window.cancelAnimationFrame(frame)
+      clearTimeout(scrollTimer)
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('scrollend', finishScroll)
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [id])
+
+  useEffect(() => {
+    if (hasConversation) followLatest()
+  }, [messages.length, isLoading, hasConversation])
 
   useEffect(() => {
     if (loaded.current) return
@@ -140,7 +269,7 @@ export function ConversationView({ id }: { id: string }) {
   }
 
   return (
-    <main className="app">
+    <main className="app conversation-page" ref={page}>
       <header className="page-header">
         <p className="eyebrow">LOCAL MODELS. REAL CONVERSATIONS.</p>
         <h1>ChattyBook</h1>
@@ -174,6 +303,7 @@ export function ConversationView({ id }: { id: string }) {
             forkedFromId={conversation.forkedFromId}
             forkSummary={conversation.forkSummary}
             forkCount={conversation.forks.length}
+            endRef={chatEnd}
           />
           {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
             <div className="actions">
@@ -213,6 +343,35 @@ export function ConversationView({ id }: { id: string }) {
           )}
           <ConversationSummary key={conversation.id} conversation={conversation} disabled={isLoading || isStopping} />
         </>
+      )}
+      {conversation && (scrollControls.top || scrollControls.bottom) && (
+        <nav className="conversation-scroll" aria-label="Conversation navigation">
+          {scrollControls.top && (
+            <button
+              type="button"
+              className="scroll-top"
+              aria-label="Jump to top"
+              data-tooltip="Jump to top"
+              onClick={() => {
+                autoFollow.current = false
+                scrollToPosition(0)
+              }}
+            >
+              <ArrowUp size={20} aria-hidden="true" />
+            </button>
+          )}
+          {scrollControls.bottom && (
+            <button
+              type="button"
+              className="scroll-bottom"
+              aria-label="Jump to latest message"
+              data-tooltip="Jump to latest message"
+              onClick={jumpToLatest}
+            >
+              <ArrowDown size={20} aria-hidden="true" />
+            </button>
+          )}
+        </nav>
       )}
     </main>
   )

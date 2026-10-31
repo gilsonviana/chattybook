@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { useState, type RefObject } from 'react'
 import { getPersonaLabel } from '../../lib/personas'
 import type { Message } from '../../lib/types'
 
@@ -28,10 +28,10 @@ interface ChatWindowProps {
   forkedFromId: number | null
   forkSummary: string | null
   forkCount: number
+  endRef: RefObject<HTMLDivElement | null>
 }
 
-export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTurns, persona1, persona2, model1, model2, devilsAdvocate, forkedFromId, forkSummary, forkCount }: ChatWindowProps) {
-  const end = useRef<HTMLDivElement>(null)
+export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTurns, persona1, persona2, model1, model2, devilsAdvocate, forkedFromId, forkSummary, forkCount, endRef }: ChatWindowProps) {
   const [copyStatus, setCopyStatus] = useState<{ messageId: number; status: 'copied' | 'error' } | null>(null)
   const completedTurns = Math.floor(messages.length / 2)
   const progress = totalTurns > 0 ? Math.floor(completedTurns / totalTurns * 100) : 0
@@ -44,10 +44,6 @@ export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTur
       setCopyStatus({ messageId: message.id, status: 'error' })
     }
   }
-
-  useEffect(() => {
-    end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages.length, isLoading])
 
   return (
     <section className="panel chat-window" aria-label="Agent dialogue" role="log" aria-live="polite">
@@ -103,7 +99,7 @@ export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTur
           </article>
         )
       })()}
-      <div ref={end} />
+      <div ref={endRef} />
     </section>
   )
 }
