@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { EllipsisVertical } from 'lucide-react'
 import { AgentSelector } from '@/components/AgentSelector'
 import { getOllamaModels, requestJson } from '../../lib/client'
 import { isConversationMode, type ConversationMode } from '../../lib/conversation-mode'
@@ -58,10 +59,9 @@ export default function Home() {
       setModel2(current => available.includes(current) ? current : available[1] || available[0] || '')
       setReviewerModel(current => current && available.includes(current) ? current : null)
       return available
-    }).catch(error => {
+    }).catch(() => {
       setHealth(null)
       setModels([])
-      setError(error instanceof Error ? error.message : 'Could not connect to Ollama.')
       return null
     }).finally(() => {
       setChecking(false)
@@ -253,13 +253,7 @@ export default function Home() {
   const validTurns = typeof turns === 'number' && Number.isInteger(turns) && turns >= 1 && turns <= 100
 
   return (
-    <main className="app">
-      <header className="page-header">
-        <p className="eyebrow">LOCAL MODELS. REAL CONVERSATIONS.</p>
-        <h1>ChattyBook</h1>
-        <p>Two AI agents explore a subject, one response at a time.</p>
-      </header>
-
+    <main className="app home-page">
       <section className="connection" aria-label="Ollama connection">
         <span
           className={`connection-indicator${health?.running ? ' is-connected' : ''}`}
@@ -281,31 +275,26 @@ export default function Home() {
               <button type="button" className="secondary" onClick={() => setForkSource(null)} disabled={isLoading}>Clear</button>
             </div>
           )}
-          <div className="subject-row">
-            <label>
-              Discussion subject
-              <input ref={subjectInput} value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
-            </label>
-            <button type="submit" disabled={isLoading || forkingConversationId !== null || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
-              {isLoading ? forkSource ? 'Summarizing...' : 'Starting...' : 'Start'}
-            </button>
-          </div>
-          <div className="length-turns">
-            <label>
-              Response length
-              <select value={responseLength} onChange={event => setResponseLength(event.target.value as ResponseLength)} disabled={isLoading}>
-                <option value="short">Short</option>
-                <option value="medium">Medium</option>
-                {mode === 'discussion' && <option value="long">Long</option>}
-              </select>
-            </label>
-            <label>
-              Number of turns
-              <input type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} />
-            </label>
-          </div>
-          <p className="muted">One turn includes a response from each agent. Default: 5 turns (10 responses).</p>
-          <div className="dialogue-options">
+          <label>
+            Discussion subject
+            <input ref={subjectInput} value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
+          </label>
+          <fieldset className="setup-group">
+            <legend>Agents</legend>
+            <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
+            <p className="muted">Each agent can use a different local model and persona.</p>
+            {mode === 'qa' && (
+              <label>
+                Review model
+                <select value={reviewerModel ?? ''} onChange={event => setReviewerModel(event.target.value || null)} disabled={isLoading || checking || !models.length}>
+                  <option value="">Use Agent 1 model{model1 ? ` (${model1})` : ''}</option>
+                  {models.map(model => <option key={model} value={model}>{model}</option>)}
+                </select>
+              </label>
+            )}
+          </fieldset>
+          <fieldset className="setup-group">
+            <legend>Dialogue settings</legend>
             <div className="dialogue-toggles">
               <button
                 type="button"
@@ -337,23 +326,32 @@ export default function Home() {
                 <span className="mode-toggle-state" aria-hidden="true">{devilsAdvocate ? 'On' : 'Off'}</span>
               </button>
             </div>
+            <div className="length-turns">
+              <label>
+                Response length
+                <select value={responseLength} onChange={event => setResponseLength(event.target.value as ResponseLength)} disabled={isLoading}>
+                  <option value="short">Short</option>
+                  <option value="medium">Medium</option>
+                  {mode === 'discussion' && <option value="long">Long</option>}
+                </select>
+              </label>
+              <label>
+                Number of turns
+                <input type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} />
+              </label>
+            </div>
+            <p className="muted">One turn includes a response from each agent. Default: 5 turns (10 responses).</p>
+          </fieldset>
+          <div className="setup-actions">
+            <button type="submit" disabled={isLoading || forkingConversationId !== null || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
+              {isLoading ? forkSource ? 'Summarizing...' : 'Starting...' : 'Start'}
+            </button>
           </div>
-          <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
-          <p className="muted">Each agent can use a different local model and persona.</p>
-          {mode === 'qa' && (
-            <label>
-              Review model
-              <select value={reviewerModel ?? ''} onChange={event => setReviewerModel(event.target.value || null)} disabled={isLoading || checking || !models.length}>
-                <option value="">Use Agent 1 model{model1 ? ` (${model1})` : ''}</option>
-                {models.map(model => <option key={model} value={model}>{model}</option>)}
-              </select>
-            </label>
-          )}
         </form>
 
         <aside className="history" aria-labelledby="history-heading">
           <div className="history-heading">
-            <h2 id="history-heading">Previous conversations</h2>
+            <h2 id="history-heading">Recents</h2>
             <span className="muted">{history.length}</span>
           </div>
           <div className="history-content">
@@ -377,7 +375,9 @@ export default function Home() {
                       </span>
                     </Link>
                     <details className="history-menu">
-                      <summary aria-label={`Actions for ${displayTitle(conversation)}`} title="Conversation actions">⋮</summary>
+                      <summary aria-label={`Actions for ${displayTitle(conversation)}`} title="Conversation actions">
+                        <EllipsisVertical size={18} aria-hidden="true" />
+                      </summary>
                       <div className="history-menu-actions">
                         <button
                           type="button"

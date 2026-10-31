@@ -270,11 +270,6 @@ export function ConversationView({ id }: { id: string }) {
 
   return (
     <main className="app conversation-page" ref={page}>
-      <header className="page-header">
-        <p className="eyebrow">LOCAL MODELS. REAL CONVERSATIONS.</p>
-        <h1>ChattyBook</h1>
-        <p>Two AI agents explore a subject, one response at a time.</p>
-      </header>
       <div className="conversation-nav">
         <Link href="/">New dialogue</Link>
         {conversation && (

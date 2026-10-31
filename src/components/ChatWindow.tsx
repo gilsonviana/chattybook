@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useState, type RefObject } from 'react'
 import { getPersonaLabel } from '../../lib/personas'
 import type { Message } from '../../lib/types'
@@ -31,10 +30,8 @@ interface ChatWindowProps {
   endRef: RefObject<HTMLDivElement | null>
 }
 
-export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTurns, persona1, persona2, model1, model2, devilsAdvocate, forkedFromId, forkSummary, forkCount, endRef }: ChatWindowProps) {
+export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, persona2, model1, model2, forkSummary, endRef }: ChatWindowProps) {
   const [copyStatus, setCopyStatus] = useState<{ messageId: number; status: 'copied' | 'error' } | null>(null)
-  const completedTurns = Math.floor(messages.length / 2)
-  const progress = totalTurns > 0 ? Math.floor(completedTurns / totalTurns * 100) : 0
 
   async function copyResponse(message: Message) {
     try {
@@ -46,17 +43,7 @@ export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTur
   }
 
   return (
-    <section className="panel chat-window" aria-label="Agent dialogue" role="log" aria-live="polite">
-      <header className="chat-header">
-        <div className="chat-title">
-          <h2>{title}</h2>
-          {reviewerModel && <p className="reviewer-model">Reviewer: {reviewerModel}</p>}
-          {devilsAdvocate && <p className="reviewer-model">Devil&apos;s advocate: Agent 1 challenges Agent 2</p>}
-          {forkedFromId !== null && <p className="reviewer-model">Forked from <Link href={`/conversation/${forkedFromId}`}>conversation #{forkedFromId}</Link></p>}
-          {forkCount > 0 && <p className="reviewer-model"><a href="#conversation-forks">Forked into {forkCount === 1 ? '1 conversation' : `${forkCount} conversations`}</a></p>}
-        </div>
-        <p className="chat-progress">{progress}%</p>
-      </header>
+    <section className="panel chat-window" aria-label={`Agent dialogue: ${title}`} role="log" aria-live="polite">
       {forkSummary && (
         <details className="fork-summary">
           <summary>Key points carried over from the forked conversation</summary>
