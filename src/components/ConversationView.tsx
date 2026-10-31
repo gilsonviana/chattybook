@@ -2,14 +2,14 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { requestJson } from '../../lib/client'
 import type { Conversation, Message } from '../../lib/types'
 import { ChatWindow } from './ChatWindow'
 import { ConversationSummary } from './ConversationSummary'
 
-async function generateDialogue(active: Conversation, update: (conversation: Conversation) => void, shouldStop: () => boolean) {
+async function generateDialogue(active: Conversation, update: (conversation: Pick<Conversation, 'messages' | 'status'>) => void, shouldStop: () => boolean) {
   let history = active.messages
   let current = active
   while (!shouldStop() && history.length < current.totalTurns * 2) {
@@ -21,7 +21,7 @@ async function generateDialogue(active: Conversation, update: (conversation: Con
     if (shouldStop()) return
     history = result.allMessages
     current = { ...current, messages: history, status: result.completed ? 'completed' : 'active' }
-    update(current)
+    update({ messages: history, status: current.status })
   }
 }
 
@@ -31,6 +31,10 @@ export function ConversationView({ id }: { id: string }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isStopping, setIsStopping] = useState(false)
+  const [isSavingReview, setIsSavingReview] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const reviewSavePending = useRef(false)
+  const reviewRevision = useRef(0)
   const [error, setError] = useState('')
   const loaded = useRef(false)
   const busy = useRef(false)
@@ -41,6 +45,42 @@ export function ConversationView({ id }: { id: string }) {
   const programmaticScroll = useRef(false)
   const [scrollControls, setScrollControls] = useState({ top: false, bottom: false })
   const hasConversation = conversation !== null
+
+  const loadConversation = useCallback(async () => {
+    const revision = reviewRevision.current
+    const active = await requestJson<Conversation>(`/api/conversation/${id}`)
+    setConversation(current => current && (reviewSavePending.current || revision !== reviewRevision.current)
+      ? { ...active, reviewEnabled: current.reviewEnabled }
+      : active)
+    setMessages(active.messages)
+    return active
+  }, [id])
+
+  async function toggleReview() {
+    if (!conversation || reviewSavePending.current) return
+    const previous = conversation.reviewEnabled
+    const reviewEnabled = !previous
+    reviewSavePending.current = true
+    reviewRevision.current++
+    setIsSavingReview(true)
+    setReviewError('')
+    setConversation(current => current ? { ...current, reviewEnabled } : current)
+    try {
+      const result = await requestJson<{ reviewEnabled: boolean }>(`/api/conversation/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewEnabled }),
+      })
+      setConversation(current => current ? { ...current, reviewEnabled: result.reviewEnabled } : current)
+    } catch (saveError) {
+      setConversation(current => current ? { ...current, reviewEnabled: previous } : current)
+      setReviewError(saveError instanceof Error ? saveError.message : 'Could not update question review.')
+    } finally {
+      reviewRevision.current++
+      reviewSavePending.current = false
+      setIsSavingReview(false)
+    }
+  }
 
   function scrollToPosition(top: number) {
     const destination = Math.max(0, Math.min(top, document.documentElement.scrollHeight - window.innerHeight))
@@ -169,9 +209,7 @@ export function ConversationView({ id }: { id: string }) {
     loaded.current = true
     void (async () => {
       try {
-        const active = await requestJson<Conversation>(`/api/conversation/${id}`)
-        setConversation(active)
-        setMessages(active.messages)
+        const active = await loadConversation()
         setIsLoading(false)
 
         if (window.sessionStorage.getItem('chattybook:new-conversation') === id) {
@@ -180,7 +218,7 @@ export function ConversationView({ id }: { id: string }) {
           setIsLoading(true)
           try {
             await generateDialogue(active, updated => {
-              setConversation(updated)
+              setConversation(current => current ? { ...current, ...updated } : current)
               setMessages(updated.messages)
             }, () => stopRequested.current)
           } catch (generationError) {
@@ -197,7 +235,7 @@ export function ConversationView({ id }: { id: string }) {
         setIsLoading(false)
       }
     })()
-  }, [id])
+  }, [id, loadConversation])
 
   async function retryConversation() {
     if (busy.current || isStopping || !conversation) return
@@ -206,7 +244,7 @@ export function ConversationView({ id }: { id: string }) {
     setIsLoading(true)
     setError('')
     try {
-      const active = await requestJson<Conversation>(`/api/conversation/${id}`)
+      const active = await loadConversation()
       if (active.status === 'generating') {
         await requestJson(`/api/conversation/${id}`, {
           method: 'PATCH',
@@ -215,14 +253,12 @@ export function ConversationView({ id }: { id: string }) {
         })
       }
       const resumed = active.status === 'generating'
-        ? await requestJson<Conversation>(`/api/conversation/${id}`)
+        ? await loadConversation()
         : active
-      setConversation(resumed)
-      setMessages(resumed.messages)
       if (stopRequested.current) return
       if (resumed.status === 'completed') return
       await generateDialogue(resumed, updated => {
-        setConversation(updated)
+        setConversation(current => current ? { ...current, ...updated } : current)
         setMessages(updated.messages)
       }, () => stopRequested.current)
     } catch (retryError) {
@@ -244,9 +280,7 @@ export function ConversationView({ id }: { id: string }) {
       await requestJson(`/api/conversation/${id}`, { method: 'PATCH' })
       setConversation(current => current ? { ...current, status: 'completed' } : current)
       setIsLoading(false)
-      const stopped = await requestJson<Conversation>(`/api/conversation/${id}`)
-      setConversation(stopped)
-      setMessages(stopped.messages)
+      await loadConversation()
     } catch (stopError) {
       setError(stopError instanceof Error ? stopError.message : 'Could not stop the dialogue.')
     } finally {
@@ -281,9 +315,27 @@ export function ConversationView({ id }: { id: string }) {
       </div>
       {isLoading && !conversation && <p className="muted" role="status">Loading conversation...</p>}
       {error && <div className="error" role="alert">{error}</div>}
+      {reviewError && <div className="error" role="alert">{reviewError}</div>}
       {error && !conversation && <Link href="/">Back to conversations</Link>}
       {conversation && (
         <>
+          {conversation.mode === 'qa' && (
+            <div className="conversation-review">
+              <button
+                type="button"
+                className="mode-toggle"
+                role="switch"
+                aria-checked={conversation.reviewEnabled}
+                aria-busy={isSavingReview}
+                onClick={() => void toggleReview()}
+                disabled={isSavingReview}
+              >
+                <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
+                <span>Review questions</span>
+                <span className="mode-toggle-state" aria-hidden="true">{conversation.reviewEnabled ? 'On' : 'Off'}</span>
+              </button>
+            </div>
+          )}
           <ChatWindow
             title={conversation.title ?? conversation.subject}
             reviewerModel={conversation.reviewerModel}

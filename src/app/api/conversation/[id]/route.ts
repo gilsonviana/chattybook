@@ -69,6 +69,17 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         throw new ApiError('Request body must be a JSON object.', 400)
       }
       const payload = body as Record<string, unknown>
+      if (Object.hasOwn(payload, 'reviewEnabled')) {
+        if (Object.keys(payload).length !== 1 || typeof payload.reviewEnabled !== 'boolean') {
+          throw new ApiError('Send only reviewEnabled, as true or false.', 400)
+        }
+        const updated = await prisma.conversation.updateMany({
+          where: { id: conversationId },
+          data: { reviewEnabled: payload.reviewEnabled },
+        })
+        if (!updated.count) throw new ApiError('Conversation not found.', 404)
+        return NextResponse.json({ success: true, reviewEnabled: payload.reviewEnabled })
+      }
       if (payload.resume === true) {
         const resumed = await prisma.conversation.updateMany({
           where: { id: conversationId, status: 'generating' },

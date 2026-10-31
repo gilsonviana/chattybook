@@ -49,6 +49,11 @@ response from each agent: **10 generated responses** in total.
    **Review model** selects an installed local model to assess follow-ups; its
    default follows Agent 1's model. Openers, Agent 2 replies, and discussion-mode
    messages are not reviewed.
+   **Review questions** is enabled by default. Turn it off at setup or on the
+   conversation page to skip model-based review. While generation is running,
+   the current turn finishes with its original setting; the next follow-up uses
+   the saved setting. The reviewer selection is retained while disabled, and
+   forks copy the source conversation's review setting.
    **Devil's advocate** makes Agent 1 skeptical: in discussion mode it questions
    Agent 2's claims and tries to refute them; in Q&A mode its questions challenge a
    specific claim or assumption in Agent 2's latest answer (still one question per
@@ -96,6 +101,9 @@ already supplied in Agent 2's answers; returning to the same topic to ask for a
 new detail is allowed. Drafting, model checks, review, and
 repair share a three-minute budget. Review adds local inference calls and can take
 longer when switching models.
+When review is disabled, follow-ups still use the grounding prompts and bounded
+question-format repairs, but make no reviewer calls and receive no quality warning.
+Warnings on earlier reviewed questions remain unchanged.
 
 Review is advisory: if the final question is rejected, review fails, or the budget
 expires, the latest question that passes the one-question format check is saved.
@@ -116,7 +124,9 @@ compound requests but does not guarantee relevance or factual accuracy.
 - `GET /api/ollama/models`: `{ models: string[] }` containing installed local model
   names, or `{ models: [], error }` (503). An empty successful list means no models
   are installed. Use **Refresh models** after installing a model or starting Ollama.
-- `POST /api/conversation`: `{ subject, model1, model2, reviewerModel?, persona1?, persona2?, mode?, responseLength?, totalTurns?, devilsAdvocate?, forkedFromId? }`.
+- `POST /api/conversation`: `{ subject, model1, model2, reviewerModel?, reviewEnabled?, persona1?, persona2?, mode?, responseLength?, totalTurns?, devilsAdvocate?, forkedFromId? }`.
+   `reviewEnabled` is a boolean (default `true`, including existing conversations).
+   The selected reviewer must be available only when Q&A review is enabled.
    `devilsAdvocate` is a boolean (default `false`). `forkedFromId` is the ID of an
    existing conversation or `null` (the default); a missing source returns 404.
    Forking generates the summary with `model1` (512-token ceiling per request)
@@ -139,6 +149,9 @@ compound requests but does not guarantee relevance or factual accuracy.
    Titles are trimmed and must contain 1 to 120 characters. The original subject
    remains unchanged. A bodyless PATCH retains the existing generation-cancellation
    behavior.
+   A separate `{ reviewEnabled: boolean }` payload changes review for future Q&A
+   follow-ups, including while generating, without changing status or cancelling
+   a turn. Do not combine it with rename or resume fields.
 - `POST /api/chat`: `{ conversationId, expectedMessageCount }`. Generates and saves
   exactly one response. The server chooses the next agent, constructs history from
   that agent's perspective, and marks the conversation complete after both agents
@@ -154,7 +167,7 @@ compound requests but does not guarantee relevance or factual accuracy.
    `forks` (`{ id, subject, title, status, createdAt }` for each conversation
    forked from it, oldest first), and ordered messages.
    Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`
-   when review does not apply or the message predates review support.
+   when review is disabled, does not apply, or the message predates review support.
    Nullable `reviewReason` is `ok`, `disconnected`, `repetitive`, `compound`, or
    `not_question_only` for reviewed questions, or `reviewer_error` / `timeout`
    when verification could not finish. Nullable `reviewExplanation` contains the

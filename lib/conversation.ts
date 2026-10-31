@@ -11,7 +11,7 @@ import type { Message } from './types'
 
 type ReviewReason = 'ok' | 'disconnected' | 'repetitive' | 'compound' | 'not_question_only'
 type ReviewedQuestion = Pick<Message, 'content' | 'reviewReason' | 'reviewExplanation'> & {
-  reviewStatus: 'accepted' | 'rejected' | 'unchecked'
+  reviewStatus: 'accepted' | 'rejected' | 'unchecked' | null
 }
 
 function isSingleQuestion(content: string) {
@@ -27,6 +27,7 @@ function parseReview(content: string): { verdict: 'accept' | 'retry'; reason: Re
 async function generateQaFollowUp(options: {
   model: string
   reviewer: string
+  reviewEnabled: boolean
   subject: string
   latestAnswer: string
   previousQuestions: string[]
@@ -60,7 +61,8 @@ async function generateQaFollowUp(options: {
         explanation = null
         continue
       }
-      selected = { content, reviewStatus: 'unchecked', reviewReason: null, reviewExplanation: null }
+      selected = { content, reviewStatus: options.reviewEnabled ? 'unchecked' : null, reviewReason: null, reviewExplanation: null }
+      if (!options.reviewEnabled) return selected
       try {
         signal.throwIfAborted()
         if (!reviewerChecked) {
@@ -187,6 +189,7 @@ export interface ConversationOptions {
   model1: string
   model2: string
   reviewerModel: string | null
+  reviewEnabled: boolean
   persona1: Persona
   persona2: Persona
   mode: ConversationMode
@@ -197,7 +200,7 @@ export interface ConversationOptions {
 }
 
 export async function initializeConversation(options: ConversationOptions) {
-  await requireLocalModels([options.model1, options.model2, ...(options.reviewerModel ? [options.reviewerModel] : [])])
+  await requireLocalModels([options.model1, options.model2, ...(options.mode === 'qa' && options.reviewEnabled && options.reviewerModel ? [options.reviewerModel] : [])])
   const forkSummary = options.forkedFromId === null ? null : await summarizeForkSource(options.forkedFromId, options.model1)
   const { forkedFromId, ...conversationData } = options
   return prisma.conversation.create({
@@ -210,31 +213,39 @@ export async function initializeConversation(options: ConversationOptions) {
   })
 }
 
-export async function runNextTurn(conversationId: number, expectedMessageCount: number) {
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-    include: { messages: { orderBy: { id: 'asc' } } },
-  })
-  if (!conversation) throw new ApiError('Conversation not found.', 404)
-  if (conversation.status !== 'active') {
-    throw new ApiError(conversation.status === 'completed'
-      ? 'This conversation is already completed.'
-      : 'A response is already being generated.', 409)
-  }
-  const count = conversation.messages.length
-  if (count !== expectedMessageCount) {
-    throw new ApiError('Conversation has changed. Reload its messages before continuing.', 409)
-  }
-  if (count >= conversation.totalTurns * 2) {
-    throw new ApiError('All turns have already been generated.', 409)
-  }
+async function acquireTurn(conversationId: number, expectedMessageCount: number, generationId: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { messages: { orderBy: { id: 'asc' } } },
+    })
+    if (!conversation) throw new ApiError('Conversation not found.', 404)
+    if (conversation.status !== 'active') {
+      throw new ApiError(conversation.status === 'completed'
+        ? 'This conversation is already completed.'
+        : 'A response is already being generated.', 409)
+    }
+    const count = conversation.messages.length
+    if (count !== expectedMessageCount) {
+      throw new ApiError('Conversation has changed. Reload its messages before continuing.', 409)
+    }
+    if (count >= conversation.totalTurns * 2) {
+      throw new ApiError('All turns have already been generated.', 409)
+    }
 
+    const lock = await prisma.conversation.updateMany({
+      where: { id: conversationId, status: 'active', updatedAt: conversation.updatedAt, reviewEnabled: conversation.reviewEnabled },
+      data: { status: 'generating', generationId },
+    })
+    if (lock.count === 1) return conversation
+  }
+  throw new ApiError('Conversation settings are changing. Please retry.', 409)
+}
+
+export async function runNextTurn(conversationId: number, expectedMessageCount: number) {
   const generationId = randomUUID()
-  const lock = await prisma.conversation.updateMany({
-    where: { id: conversationId, status: 'active', updatedAt: conversation.updatedAt },
-    data: { status: 'generating', generationId },
-  })
-  if (lock.count !== 1) throw new ApiError('A response is already being generated.', 409)
+  const conversation = await acquireTurn(conversationId, expectedMessageCount, generationId)
+  const count = conversation.messages.length
 
   const controller = new AbortController()
   const cancellationCheck = setInterval(() => {
@@ -315,6 +326,7 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
     if (isFollowUp && latestAnswer) {
       const question = await generateQaFollowUp({
         model, reviewer: conversation.reviewerModel ?? conversation.model1,
+        reviewEnabled: conversation.reviewEnabled,
         subject: conversation.subject, latestAnswer,
         previousQuestions,
         previousAnswers: conversation.messages.filter(message => message.speaker === 'agent2').map(message => message.content),

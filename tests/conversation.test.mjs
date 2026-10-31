@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn, execFileSync } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -245,7 +245,7 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.equal(createdSummaries[1].persona2, 'Professor')
   assert.equal(createdSummaries[1].responseLength, 'long')
   assert.deepEqual(Object.keys(createdSummaries[0]).sort(), [
-    'createdAt', 'devilsAdvocate', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'reviewerModel', 'status', 'subject', 'title', 'updatedAt',
+    'createdAt', 'devilsAdvocate', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'reviewEnabled', 'reviewerModel', 'status', 'subject', 'title', 'updatedAt',
   ])
 
   const firstDetail = await api(`/api/conversation/${first.data.id}`)
@@ -742,20 +742,174 @@ async function prepareReviewedFollowUp(extra = {}) {
 
 test('Q&A reviewer selection persists, defaults to Agent 1, and rejects invalid models', async () => {
   for (const reviewerModel of [undefined, null, ` ${localModels[1]} `]) {
-    const created = await createConversation({ reviewerModel })
+    const created = await createConversation({ mode: 'qa', reviewerModel })
     assert.equal(created.status, 201)
     const expected = reviewerModel?.trim() ?? null
     assert.equal(created.data.reviewerModel, expected)
     assert.equal((await api(`/api/conversation/${created.data.id}`)).data.reviewerModel, expected)
   }
   for (const reviewerModel of ['', ' ', 1, false, {}, [], 'not-installed', 'remote:cloud', 'remote-alias']) {
-    assert.equal((await createConversation({ reviewerModel })).status, 400, JSON.stringify(reviewerModel))
+    assert.equal((await createConversation({ mode: 'qa', reviewerModel })).status, 400, JSON.stringify(reviewerModel))
   }
   try {
     mode = 'cloud-alias'
-    assert.equal((await createConversation({ reviewerModel: 'disguised:local' })).status, 400)
+    assert.equal((await createConversation({ mode: 'qa', reviewerModel: 'disguised:local' })).status, 400)
   } finally {
     mode = 'online'
+  }
+})
+
+test('review setting defaults on, persists explicit false, and validates flag-only updates', async () => {
+  const defaultConversation = await createConversation({ mode: 'qa' })
+  assert.equal(defaultConversation.data.reviewEnabled, true)
+  for (const reviewEnabled of [false, true]) {
+    const created = await createConversation({ mode: 'qa', reviewEnabled, reviewerModel: localModels[1] })
+    assert.equal(created.status, 201)
+    const id = created.data.id
+    assert.equal(created.data.reviewEnabled, reviewEnabled)
+    assert.equal((await api(`/api/conversation/${id}`)).data.reviewEnabled, reviewEnabled)
+    assert.equal((await api('/api/conversation')).data.find(item => item.id === id).reviewEnabled, reviewEnabled)
+    for (const body of [{ reviewEnabled: !reviewEnabled }, { reviewEnabled }]) {
+      const updated = await renameConversation(id, body)
+      assert.deepEqual(updated, { status: 200, data: { success: true, ...body } })
+      const saved = await database.conversation.findUnique({ where: { id } })
+      assert.equal(saved.reviewEnabled, body.reviewEnabled)
+      assert.equal(saved.reviewerModel, localModels[1])
+      assert.equal(saved.status, 'active')
+      assert.equal(saved.generationId, null)
+    }
+    for (const body of [{ reviewEnabled: null }, { reviewEnabled: 'false' }, { reviewEnabled: 0 },
+      { reviewEnabled: false, resume: true }, { reviewEnabled: false, title: 'Changed' }]) {
+      assert.equal((await renameConversation(id, body)).status, 400)
+    }
+    await renameConversation(id)
+    assert.equal((await renameConversation(id, { reviewEnabled: false })).status, 200)
+    assert.equal((await api(`/api/conversation/${id}`)).data.status, 'completed')
+  }
+  for (const reviewEnabled of [null, 'false', 0, {}, []]) {
+    assert.equal((await createConversation({ reviewEnabled })).status, 400)
+  }
+  assert.equal((await renameConversation(999999999, { reviewEnabled: false })).status, 404)
+  const dormantReviewer = await createConversation({ mode: 'qa', reviewEnabled: false, reviewerModel: 'not-installed' })
+  assert.equal(dormantReviewer.status, 201)
+  assert.equal(dormantReviewer.data.reviewerModel, 'not-installed')
+  const fork = await createConversation({ mode: 'qa', reviewEnabled: false, reviewerModel: 'not-installed', forkedFromId: dormantReviewer.data.id })
+  assert.equal(fork.status, 201)
+  assert.equal(fork.data.reviewEnabled, false)
+  assert.equal(fork.data.reviewerModel, 'not-installed')
+})
+
+test('disabled Q&A review skips reviewer calls and metadata but still repairs malformed questions', async () => {
+  for (const malformed of [false, true]) {
+    const id = await prepareReviewedFollowUp({ reviewEnabled: false, reviewerModel: 'not-installed' })
+    chatReplies = [
+      ...(malformed ? [{ stage: 'draft', content: 'No question here.' }] : []),
+      { stage: 'draft', content: 'How does soil compaction affect stormwater storage?' },
+    ]
+    const result = await api('/api/chat', { conversationId: id, expectedMessageCount: 2 })
+    assert.equal(result.status, 200, JSON.stringify(result.data))
+    assert.equal(calls.length, malformed ? 2 : 1)
+    assert.equal(calls.filter(call => call.format).length, 0)
+    assert.match(calls[0].messages.at(-1).content, /latest Agent 2 answer/)
+    const question = result.data.allMessages.at(-1)
+    assert.equal(question.reviewStatus, null)
+    assert.equal(question.reviewReason, null)
+    assert.equal(question.reviewExplanation, null)
+    assert.equal((await api(`/api/conversation/${id}`)).data.messages.at(-1).reviewStatus, null)
+  }
+  const invalidId = await prepareReviewedFollowUp({ reviewEnabled: false })
+  chatReplies = Array.from({ length: 3 }, () => ({ content: 'No question.' }))
+  const invalid = await api('/api/chat', { conversationId: invalidId, expectedMessageCount: 2 })
+  assert.equal(invalid.status, 502)
+  assert.equal(calls.length, 3)
+  assert.equal((await api(`/api/conversation/${invalidId}`)).data.messages.length, 2)
+})
+
+test('live review toggles preserve the in-flight turn and apply to the next follow-up', { timeout: 30000 }, async () => {
+  for (const [reviewEnabled, atCall] of [[true, 1], [true, 2], [true, 3], [false, 1]]) {
+    const id = await prepareReviewedFollowUp({ reviewEnabled })
+    let releaseChat
+    let signalStarted
+    const released = new Promise(resolve => { releaseChat = resolve })
+    const started = new Promise(resolve => { signalStarted = resolve })
+    chatReplies = reviewEnabled ? [
+      { stage: 'draft', content: 'How does soil absorb runoff?' },
+      { stage: 'review', content: '{"verdict":"retry","reason":"repetitive"}' },
+      { stage: 'draft', content: 'How does soil compaction affect storage?' },
+      { stage: 'review', content: '{"verdict":"accept","reason":"ok"}' },
+    ] : [{ stage: 'draft', content: 'How does soil compaction affect storage?' }]
+    chatBarrier = { atCall, started: signalStarted, released }
+    let generation
+    try {
+      generation = api('/api/chat', { conversationId: id, expectedMessageCount: 2 })
+      await started
+      const locked = await database.conversation.findUnique({ where: { id } })
+      assert.equal(locked.status, 'generating')
+      assert.equal((await renameConversation(id, { reviewEnabled: !reviewEnabled })).status, 200)
+      const toggled = await database.conversation.findUnique({ where: { id } })
+      assert.equal(toggled.status, 'generating')
+      assert.equal(toggled.generationId, locked.generationId)
+      releaseChat()
+      const current = await generation
+      assert.equal(current.status, 200, JSON.stringify(current.data))
+      assert.equal(current.data.allMessages.at(-1).reviewStatus, reviewEnabled ? 'accepted' : null)
+      assert.equal(calls.filter(call => call.format).length, reviewEnabled ? 2 : 0)
+      const saved = (await api(`/api/conversation/${id}`)).data
+      assert.equal(saved.reviewEnabled, !reviewEnabled)
+      chatBarrier = null
+      assert.equal((await api('/api/chat', { conversationId: id, expectedMessageCount: 3 })).status, 200)
+      calls.length = 0
+      chatReplies = [{ stage: 'draft', content: 'How do roots restore compacted soil?' }]
+      const next = await api('/api/chat', { conversationId: id, expectedMessageCount: 4 })
+      assert.equal(next.status, 200, JSON.stringify(next.data))
+      assert.equal(calls.filter(call => call.format).length, reviewEnabled ? 0 : 1)
+      assert.equal(next.data.allMessages.at(-1).reviewStatus, reviewEnabled ? null : 'accepted')
+      assert.deepEqual(next.data.allMessages[2], current.data.allMessages[2])
+    } finally {
+      releaseChat()
+      if (generation) await generation
+      chatBarrier = null
+      chatReplies = []
+    }
+  }
+})
+
+test('turn lock retries settings races even with identical timestamps and revalidates competing turns', async () => {
+  const { transpileModule, ModuleKind, ScriptTarget } = await import('typescript')
+  const source = await readFile(new URL('../lib/conversation.ts', import.meta.url), 'utf8')
+  const compiled = transpileModule(`${source}\nexport { acquireTurn }`, {
+    compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 },
+  }).outputText
+  for (const scenario of ['toggle', 'contention', 'generating', 'messages']) {
+    let reads = 0
+    let updates = 0
+    const snapshot = { id: 1, status: 'active', updatedAt: new Date(0), reviewEnabled: true, totalTurns: 3, messages: [] }
+    const prisma = { conversation: {
+      findUnique: async () => { reads++; return { ...snapshot } },
+      updateMany: async ({ where }) => {
+        updates++
+        if (scenario === 'contention') return { count: 0 }
+        if (updates === 1) {
+          if (scenario === 'toggle') snapshot.reviewEnabled = false
+          if (scenario === 'generating') snapshot.status = 'generating'
+          if (scenario === 'messages') snapshot.messages = [{ content: 'Already saved' }]
+        }
+        return { count: where.status === snapshot.status && where.reviewEnabled === snapshot.reviewEnabled && scenario !== 'messages' ? 1 : 0 }
+      },
+    } }
+    class ApiError extends Error {
+      constructor(message, status) { super(message); this.status = status }
+    }
+    const exports = {}
+    new Function('require', 'exports', compiled)(name => name === './db' ? { prisma } : name === './api' ? { ApiError } : {}, exports)
+    if (scenario === 'toggle') {
+      assert.equal((await exports.acquireTurn(1, 0, 'test-generation')).reviewEnabled, false)
+      assert.equal(updates, 2)
+      assert.equal(reads, 2)
+    } else {
+      await assert.rejects(exports.acquireTurn(1, 0, 'test-generation'), error => error.status === 409)
+      assert.equal(updates, scenario === 'contention' ? 3 : 1)
+    }
   }
 })
 

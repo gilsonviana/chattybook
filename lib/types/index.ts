@@ -8,6 +8,7 @@ export interface Conversation {
   model1: string
   model2: string
   reviewerModel: string | null
+  reviewEnabled: boolean
   persona1: string
   persona2: string
   mode: ConversationMode
@@ -32,6 +33,7 @@ export interface ConversationSummary {
   subject: string
   title: string | null
   reviewerModel: string | null
+  reviewEnabled: boolean
   status: string
   persona1: string
   persona2: string
