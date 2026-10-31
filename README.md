@@ -36,7 +36,13 @@ response from each agent: **10 generated responses** in total.
    optionally enable Q&A mode and choose a response length, then select **Start
    dialogue**. Personas can be set independently to None, Student, Professor,
    Minister, Politician, or Historian. Response length applies to both agents.
-   In Q&A mode, Agent 1 asks one question per turn; Agent 2 responds normally.
+   Short prompts require exactly one paragraph with at most 25 words; Medium
+   allows up to 3 paragraphs; Long allows up to 7 paragraphs in discussion mode only.
+   These are prompt instructions, not output validation; models may exceed the limits.
+   In Q&A mode, Agent 1 asks one question per turn; Agent 2 is instructed to answer
+   only that question, without tangents or additional questions. Personas affect
+   voice, not question scope or length. Switching to Q&A or restoring Q&A settings
+   changes a Long selection to Medium.
    The first question opens the subject. Follow-ups build on Agent 2's latest
    answer, with connected branches to other aspects of the subject allowed.
    **Review model** selects an installed local model to assess follow-ups; its
@@ -85,6 +91,8 @@ compound requests but does not guarantee relevance or factual accuracy.
    Personas default to `None` and can be `Student`, `Professor`, `Minister`,
    `Politician`, or `Historian`. Mode defaults to `discussion` and can be `qa`.
    Response length defaults to `medium` and can be `short`, `medium`, or `long`.
+   Q&A rejects `long` with HTTP 400. Existing Q&A conversations saved with `long`
+   use Medium instructions and token ceilings for future turns without rewriting history.
    These map to 256, 1024, and 2048 generated-token ceilings. `totalTurns`
    defaults to 5 and accepts integers from 1 to 100. Returns a new conversation
    with no placeholder messages. `reviewerModel` is an installed local model name

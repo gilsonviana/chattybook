@@ -7,7 +7,7 @@ import { AgentSelector } from '@/components/AgentSelector'
 import { getOllamaModels, requestJson } from '../../lib/client'
 import { isConversationMode, type ConversationMode } from '../../lib/conversation-mode'
 import { isPersona, type Persona } from '../../lib/personas'
-import { isResponseLength, type ResponseLength } from '../../lib/response-length'
+import { isResponseLength, resolveResponseLength, type ResponseLength } from '../../lib/response-length'
 import type { Conversation, ConversationSummary } from '../../lib/types'
 import type { OllamaHealth } from '../../lib/ollama'
 
@@ -72,8 +72,9 @@ export default function Home() {
         if (settings.reviewerModel === null || typeof settings.reviewerModel === 'string') setReviewerModel(settings.reviewerModel)
         if (isPersona(settings.persona1)) setPersona1(settings.persona1)
         if (isPersona(settings.persona2)) setPersona2(settings.persona2)
-        if (isConversationMode(settings.mode)) setMode(settings.mode)
-        if (isResponseLength(settings.responseLength)) setResponseLength(settings.responseLength)
+        const restoredMode = isConversationMode(settings.mode) ? settings.mode : 'qa'
+        setMode(restoredMode)
+        if (isResponseLength(settings.responseLength)) setResponseLength(resolveResponseLength(restoredMode, settings.responseLength))
       } catch {
         return
       }
@@ -223,7 +224,11 @@ export default function Home() {
               className="mode-toggle"
               role="switch"
               aria-checked={mode === 'qa'}
-              onClick={() => setMode(current => current === 'qa' ? 'discussion' : 'qa')}
+              onClick={() => {
+                const nextMode = mode === 'qa' ? 'discussion' : 'qa'
+                setMode(nextMode)
+                setResponseLength(current => resolveResponseLength(nextMode, current))
+              }}
               disabled={isLoading}
             >
               <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
@@ -248,7 +253,7 @@ export default function Home() {
             <select value={responseLength} onChange={event => setResponseLength(event.target.value as ResponseLength)} disabled={isLoading}>
               <option value="short">Short</option>
               <option value="medium">Medium</option>
-              <option value="long">Long</option>
+              {mode === 'discussion' && <option value="long">Long</option>}
             </select>
           </label>
         </form>

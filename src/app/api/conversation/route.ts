@@ -3,7 +3,7 @@ import { ApiError, errorResponse, readBody } from '../../../../lib/api'
 import { initializeConversation } from '../../../../lib/conversation'
 import { isConversationMode } from '../../../../lib/conversation-mode'
 import { isPersona } from '../../../../lib/personas'
-import { isResponseLength } from '../../../../lib/response-length'
+import { isResponseLength, resolveResponseLength } from '../../../../lib/response-length'
 import { prisma } from '../../../../lib/db'
 
 export async function GET() {
@@ -51,6 +51,9 @@ export async function POST(request: Request) {
     }
     if (!isResponseLength(responseLength)) {
       throw new ApiError('Response length must be short, medium, or long.', 400)
+    }
+    if (resolveResponseLength(mode, responseLength) !== responseLength) {
+      throw new ApiError('Long responses are not available in Q&A mode. Choose short or medium.', 400)
     }
     if (typeof totalTurns !== 'number' || !Number.isInteger(totalTurns) || totalTurns < 1 || totalTurns > 100) {
       throw new ApiError('Number of turns must be an integer between 1 and 100.', 400)
