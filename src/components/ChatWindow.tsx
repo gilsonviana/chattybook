@@ -15,6 +15,8 @@ interface ChatWindowProps {
 
 export function ChatWindow({ subject, messages, isLoading, totalTurns, persona1, persona2 }: ChatWindowProps) {
   const end = useRef<HTMLDivElement>(null)
+  const completedTurns = Math.floor(messages.length / 2)
+  const progress = totalTurns > 0 ? Math.floor(completedTurns / totalTurns * 100) : 0
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages.length, isLoading])
@@ -23,7 +25,7 @@ export function ChatWindow({ subject, messages, isLoading, totalTurns, persona1,
     <section className="panel chat-window" aria-label="Agent dialogue" role="log" aria-live="polite">
       <header className="chat-header">
         <h2>{subject}</h2>
-        <p>{Math.floor(messages.length / 2)} of {totalTurns} turns completed</p>
+        <p>{progress}%</p>
       </header>
       {messages.length === 0 && <p className="muted conversation-empty">The agents&apos; responses will appear here.</p>}
       {messages.map(message => (
