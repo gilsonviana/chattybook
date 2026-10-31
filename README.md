@@ -53,16 +53,24 @@ dialogue** to resume it.
 If generation fails, the actual error is displayed; **Retry / continue dialogue**
 reloads persisted messages and resumes without adding a fake or empty answer.
 
-Q&A follow-ups are drafted, reviewed, and repaired at most once if needed. The
+Q&A follow-ups are drafted, reviewed, and repaired at most twice if needed (three
+total candidates). Generation stops as soon as the reviewer returns `ok`. The
 review checks connection to the latest answer, conversational progress, and a
-single independently answerable question. Drafting, model checks, review, and
-repair share a one-minute budget. Review adds local inference calls and can take
+single independently answerable question. Repetition means requesting information
+already supplied in Agent 2's answers; returning to the same topic to ask for a
+new detail is allowed. Drafting, model checks, review, and
+repair share a three-minute budget. Review adds local inference calls and can take
 longer when switching models.
 
 Review is advisory: if the final question is rejected, review fails, or the budget
 expires, the latest question that passes the one-question format check is saved.
 Rejected or unverified follow-ups show a **Quality warning** that remains after
-reopening the conversation. If no valid question exists, generation fails and can
+reopening the conversation. Rejected warnings include the recorded reason and,
+when supplied by the reviewer, a one-line explanation capped at 240 characters.
+Explanations are displayed as plain text and describe the reviewer's judgment,
+not proof that a question is bad. Unverified warnings distinguish a timeout from
+reviewer failure. Historical warnings without details say none were recorded;
+existing messages are not re-reviewed. If no valid question exists, generation fails and can
 be retried. Cancellation always prevents an in-flight question from being saved.
 The format check enforces one terminal question mark; semantic review can detect
 compound requests but does not guarantee relevance or factual accuracy.
@@ -91,13 +99,17 @@ compound requests but does not guarantee relevance or factual accuracy.
 - `GET /api/conversation/:id`: retrieves the saved conversation and ordered messages.
    Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`
    when review does not apply or the message predates review support.
+   Nullable `reviewReason` is `ok`, `disconnected`, `repetitive`, `compound`, or
+   `not_question_only` for reviewed questions, or `reviewer_error` / `timeout`
+   when verification could not finish. Nullable `reviewExplanation` contains the
+   reviewer's short explanation, normalized to one line and capped at 240 characters.
 
 If Ollama is unavailable, start it locally. If no models appear, run `ollama list`
 and install a chat-capable model. Model, connection, and database errors are
 reported separately rather than being replaced with an "Ollama not connected"
 message. Requests time out after 5 seconds for connection/model checks and 5
-minutes for generation outside Q&A follow-ups. Each Q&A follow-up instead has one
-shared minute for model work; database persistence occurs afterward. A timeout
+minutes for generation outside Q&A follow-ups. Each Q&A follow-up instead has a
+shared three-minute budget for model work; database persistence occurs afterward. A timeout
 before any valid question exists returns 504 without advancing the conversation.
 
 ## Validation
@@ -107,11 +119,24 @@ npm run lint
 npm test
 ```
 
+Run the optional labeled reviewer evaluation against an installed local model
+Run the optional labeled reviewer evaluation against an installed local model:
+
+```sh
+npm run reviewer:eval -- gemma2:2b
+npm run reviewer:eval -- qwen2.5:latest
+```
+
+The evaluator uses the production reviewer prompt and schema, reports expected
+and actual labels for balanced positive and negative cases, and exits nonzero on
+mismatches. It does not download models and is not part of `npm test`.
+
 `npm test` builds the production app and tests the real HTTP routes against a
 controlled local Ollama-compatible fixture and a temporary SQLite database. It
 covers default five-turn dialogues, history/agent ordering, persisted completion,
 validation, concurrency, retries, empty output, offline health, and model listing.
 It also covers reviewer selection, follow-up grounding prompts, bounded repairs,
-advisory fallback, strict verdict parsing, cancellation at every review stage,
-and the real one-minute aggregate deadline (so the suite takes over a minute).
+advisory fallback, strict verdict parsing, candidate-specific reasons/explanations,
+feedback normalization and persistence, cancellation at every review stage,
+and the real three-minute aggregate deadline (so the suite takes over three minutes).
 The fixture does not download models or touch your conversation database.

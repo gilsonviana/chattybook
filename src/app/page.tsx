@@ -5,9 +5,9 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { AgentSelector } from '@/components/AgentSelector'
 import { getOllamaModels, requestJson } from '../../lib/client'
-import type { ConversationMode } from '../../lib/conversation-mode'
-import { type Persona } from '../../lib/personas'
-import type { ResponseLength } from '../../lib/response-length'
+import { isConversationMode, type ConversationMode } from '../../lib/conversation-mode'
+import { isPersona, type Persona } from '../../lib/personas'
+import { isResponseLength, type ResponseLength } from '../../lib/response-length'
 import type { Conversation, ConversationSummary } from '../../lib/types'
 import type { OllamaHealth } from '../../lib/ollama'
 
@@ -49,7 +49,39 @@ export default function Home() {
     })
   }, [])
 
-  useEffect(() => { void refreshOllama() }, [refreshOllama])
+  useEffect(() => {
+    function restoreSettings() {
+      try {
+        const saved: unknown = JSON.parse(window.localStorage.getItem('chattybook:settings') ?? 'null')
+        if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return
+        const settings = saved as Record<string, unknown>
+        if (typeof settings.turns === 'number' && Number.isInteger(settings.turns) && settings.turns >= 1 && settings.turns <= 100) setTurns(settings.turns)
+        if (typeof settings.model1 === 'string') setModel1(settings.model1)
+        if (typeof settings.model2 === 'string') setModel2(settings.model2)
+        if (settings.reviewerModel === null || typeof settings.reviewerModel === 'string') setReviewerModel(settings.reviewerModel)
+        if (isPersona(settings.persona1)) setPersona1(settings.persona1)
+        if (isPersona(settings.persona2)) setPersona2(settings.persona2)
+        if (isConversationMode(settings.mode)) setMode(settings.mode)
+        if (isResponseLength(settings.responseLength)) setResponseLength(settings.responseLength)
+      } catch {
+        return
+      }
+    }
+    restoreSettings()
+    void refreshOllama()
+  }, [refreshOllama])
+
+  useEffect(() => {
+    if (checking) return
+    try {
+      window.localStorage.setItem('chattybook:settings', JSON.stringify({
+        turns: typeof turns === 'number' && Number.isInteger(turns) && turns >= 1 && turns <= 100 ? turns : 5,
+        model1, model2, reviewerModel, persona1, persona2, mode, responseLength,
+      }))
+    } catch {
+      return
+    }
+  }, [checking, turns, model1, model2, reviewerModel, persona1, persona2, mode, responseLength])
 
   useEffect(() => {
     let mounted = true

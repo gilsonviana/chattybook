@@ -38,6 +38,8 @@ export interface Message {
   role: string
   content: string
   reviewStatus: 'accepted' | 'rejected' | 'unchecked' | null
+  reviewReason: 'ok' | 'disconnected' | 'repetitive' | 'compound' | 'not_question_only' | 'reviewer_error' | 'timeout' | null
+  reviewExplanation: string | null
   turnNumber: number
   createdAt: string
 }

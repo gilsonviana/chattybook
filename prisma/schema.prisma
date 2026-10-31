@@ -32,6 +32,8 @@ model Message {
   role          String
   content       String
   reviewStatus  String?
+  reviewReason  String?
+  reviewExplanation String?
   turnNumber    Int
   createdAt     DateTime    @default(now())
 

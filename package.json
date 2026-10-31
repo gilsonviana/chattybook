@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "reviewer:eval": "node --experimental-strip-types tests/reviewer-eval.mjs",
+      "reviewer:eval": "node tests/reviewer-eval.mjs",
     "db:setup": "prisma generate && prisma migrate deploy",
     "test": "npm run build && node --test tests/*.test.mjs"
   },
