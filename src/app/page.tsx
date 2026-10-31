@@ -17,8 +17,8 @@ export default function Home() {
   const [error, setError] = useState('')
   const [history, setHistory] = useState<ConversationSummary[]>([])
   const [historyError, setHistoryError] = useState('')
-  const [deleteError, setDeleteError] = useState('')
-  const [deletingConversationId, setDeletingConversationId] = useState<number | null>(null)
+  const [actionError, setActionError] = useState('')
+  const [pendingConversationId, setPendingConversationId] = useState<number | null>(null)
   const [health, setHealth] = useState<OllamaHealth | null>(null)
   const [checking, setChecking] = useState(true)
   const [models, setModels] = useState<string[]>([])
@@ -78,19 +78,22 @@ export default function Home() {
     }
   }
 
-  async function deleteConversation(conversation: ConversationSummary) {
-    if (conversation.status === 'generating' || deletingConversationId !== null) return
-    if (!window.confirm(`Delete "${conversation.subject}" and all its messages? This cannot be undone.`)) return
+  async function manageConversation(conversation: ConversationSummary) {
+    if (pendingConversationId !== null) return
+    const cancelling = conversation.status === 'generating'
+    if (!cancelling && !window.confirm(`Delete "${conversation.subject}" and all its messages? This cannot be undone.`)) return
 
-    setDeleteError('')
-    setDeletingConversationId(conversation.id)
+    setActionError('')
+    setPendingConversationId(conversation.id)
     try {
-      await requestJson<{ success: boolean }>(`/api/conversation/${conversation.id}`, { method: 'DELETE' })
-      setHistory(current => current.filter(({ id }) => id !== conversation.id))
+      await requestJson<{ success: boolean }>(`/api/conversation/${conversation.id}`, { method: cancelling ? 'PATCH' : 'DELETE' })
+      setHistory(current => cancelling
+        ? current.map(item => item.id === conversation.id ? { ...item, status: 'completed' } : item)
+        : current.filter(({ id }) => id !== conversation.id))
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : 'Could not delete the conversation.')
+      setActionError(error instanceof Error ? error.message : `Could not ${cancelling ? 'cancel' : 'delete'} the conversation.`)
     } finally {
-      setDeletingConversationId(null)
+      setPendingConversationId(null)
     }
   }
 
@@ -157,7 +160,7 @@ export default function Home() {
             <span className="muted">{history.length}</span>
           </div>
           {historyError && <p className="error" role="alert">{historyError}</p>}
-          {deleteError && <p className="error" role="alert">{deleteError}</p>}
+          {actionError && <p className="error" role="alert">{actionError}</p>}
           {!historyError && history.length === 0 && <p className="muted">No saved conversations yet.</p>}
           {history.length > 0 && (
             <ul className="history-list">
@@ -166,18 +169,26 @@ export default function Home() {
                   <Link href={`/conversation/${conversation.id}`}>
                     <span className="history-subject">{conversation.subject}</span>
                     <span className="history-meta">
-                      {conversation.status} · {conversation.messageCount} messages · {new Date(conversation.updatedAt).toLocaleString()}
+                      {[
+                        ...(conversation.status === 'generating' ? ['Generating'] : []),
+                        ...[conversation.persona1, conversation.persona2].filter(persona => persona !== 'None'),
+                        conversation.responseLength.charAt(0).toUpperCase() + conversation.responseLength.slice(1),
+                      ].join(' · ')}
                     </span>
                   </Link>
-                  <button
-                    type="button"
-                    className="history-delete"
-                    aria-label={`${deletingConversationId === conversation.id ? 'Deleting' : 'Delete'} ${conversation.subject}`}
-                    disabled={conversation.status === 'generating' || deletingConversationId !== null}
-                    onClick={() => { void deleteConversation(conversation) }}
-                  >
-                    {deletingConversationId === conversation.id ? 'Deleting...' : 'Delete'}
-                  </button>
+                  <details className="history-menu">
+                    <summary aria-label={`Actions for ${conversation.subject}`} title="Conversation actions">⋮</summary>
+                    <button
+                      type="button"
+                      className="history-menu-delete"
+                      disabled={pendingConversationId !== null}
+                      onClick={() => { void manageConversation(conversation) }}
+                    >
+                      {conversation.status === 'generating'
+                        ? pendingConversationId === conversation.id ? 'Cancelling...' : 'Cancel'
+                        : pendingConversationId === conversation.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </details>
                 </li>
               ))}
             </ul>

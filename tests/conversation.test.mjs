@@ -72,6 +72,7 @@ before(async () => {
     } else if (request.url === '/api/chat') {
       calls.push(body)
       if (chatBarrier) {
+        response.on('close', () => chatBarrier?.aborted?.())
         chatBarrier.started()
         await chatBarrier.released
       } else {
@@ -179,8 +180,8 @@ test('default five turns generate ten alternating answers with correct perspecti
 })
 
 test('conversation history lists newest first with summaries and detail stays scoped by ID', async () => {
-  const first = await createConversation({ totalTurns: 1 })
-  const second = await createConversation({ subject: 'How do libraries shape communities?', totalTurns: 1 })
+  const first = await createConversation({ totalTurns: 1, persona1: 'Student', persona2: 'Professor', responseLength: 'long' })
+  const second = await createConversation({ subject: 'How do libraries shape communities?', totalTurns: 1, persona1: 'Student', responseLength: 'short' })
   assert.equal(first.status, 201)
   assert.equal(second.status, 201)
 
@@ -195,9 +196,15 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.deepEqual(createdSummaries.map(({ id }) => id), [second.data.id, first.data.id])
   assert.equal(createdSummaries[0].subject, 'How do libraries shape communities?')
   assert.equal(createdSummaries[0].messageCount, 0)
+  assert.equal(createdSummaries[0].persona1, 'Student')
+  assert.equal(createdSummaries[0].persona2, 'None')
+  assert.equal(createdSummaries[0].responseLength, 'short')
   assert.equal(createdSummaries[1].messageCount, 1)
+  assert.equal(createdSummaries[1].persona1, 'Student')
+  assert.equal(createdSummaries[1].persona2, 'Professor')
+  assert.equal(createdSummaries[1].responseLength, 'long')
   assert.deepEqual(Object.keys(createdSummaries[0]).sort(), [
-    'createdAt', 'id', 'messageCount', 'status', 'subject', 'updatedAt',
+    'createdAt', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'status', 'subject', 'updatedAt',
   ])
 
   const firstDetail = await api(`/api/conversation/${first.data.id}`)
@@ -239,6 +246,36 @@ test('deleting a generating conversation returns a conflict', async () => {
   assert.equal(deletion.status, 409)
   assert.match(deletion.data.error, /being generated/)
   assert.equal(generated.status, 200)
+})
+
+test('cancelling generation aborts the model request and allows deletion without saving a late reply', async () => {
+  const created = await createConversation({ totalTurns: 1 })
+  const id = created.data.id
+  let releaseChat
+  let signalChatStarted
+  let signalChatAborted
+  const released = new Promise(resolve => { releaseChat = resolve })
+  const started = new Promise(resolve => { signalChatStarted = resolve })
+  const aborted = new Promise(resolve => { signalChatAborted = resolve })
+  chatBarrier = { started: signalChatStarted, released, aborted: signalChatAborted }
+
+  try {
+    const generation = api('/api/chat', { conversationId: id, expectedMessageCount: 0 })
+    await started
+    const cancellation = await fetch(`${base}/api/conversation/${id}`, { method: 'PATCH' })
+    assert.equal(cancellation.status, 200)
+    assert.equal((await api(`/api/conversation/${id}`)).data.status, 'completed')
+    const generated = await generation
+    assert.equal(generated.status, 409)
+    assert.match(generated.data.error, /cancelled/)
+    await aborted
+    assert.equal(await database.message.count({ where: { conversationId: id } }), 0)
+    assert.equal((await api('/api/chat', { conversationId: id, expectedMessageCount: 0 })).status, 409)
+    assert.equal((await deleteConversation(id)).status, 200)
+  } finally {
+    releaseChat()
+    chatBarrier = null
+  }
 })
 
 test('independent personas persist and guide only their assigned agent', async () => {

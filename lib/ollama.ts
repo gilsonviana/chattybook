@@ -13,13 +13,13 @@ function localHost(): string {
   return host.origin
 }
 
-function client(timeout: number) {
+function client(timeout: number, signal?: AbortSignal) {
   return new Ollama({
     host: localHost(),
     fetch: (input, init) => fetch(input, {
       ...init,
       cache: 'no-store',
-      signal: AbortSignal.timeout(timeout),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
     }),
   })
 }
@@ -74,9 +74,9 @@ export async function requireLocalModels(names: string[]) {
   }
 }
 
-export async function generateChatResponse(model: string, messages: Message[], maxTokens: number): Promise<string> {
+export async function generateChatResponse(model: string, messages: Message[], maxTokens: number, signal?: AbortSignal): Promise<string> {
   try {
-    const response = await client(300000).chat({
+    const response = await client(300000, signal).chat({
       model,
       messages,
       stream: false,

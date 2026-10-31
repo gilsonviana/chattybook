@@ -22,6 +22,9 @@ export interface ConversationSummary {
   id: number
   subject: string
   status: string
+  persona1: Persona
+  persona2: Persona
+  responseLength: ResponseLength
   createdAt: string
   updatedAt: string
   messageCount: number

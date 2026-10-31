@@ -45,3 +45,21 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     return errorResponse(error)
   }
 }
+
+export async function PATCH(_request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await context.params
+    const conversationId = Number(id)
+    if (!Number.isSafeInteger(conversationId) || conversationId < 1) {
+      throw new ApiError('Invalid conversation ID.', 400)
+    }
+    const cancelled = await prisma.conversation.updateMany({
+      where: { id: conversationId },
+      data: { status: 'completed' },
+    })
+    if (cancelled.count === 0) throw new ApiError('Conversation not found.', 404)
+    return NextResponse.json({ success: true, status: 'completed' })
+  } catch (error) {
+    return errorResponse(error)
+  }
+}
