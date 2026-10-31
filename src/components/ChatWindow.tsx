@@ -91,7 +91,18 @@ export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTur
           )}
         </article>
       ))}
-      {isLoading && <p className="thinking" role="status">Agent {messages.length % 2 + 1} ({getPersonaLabel(messages.length % 2 === 0 ? persona1 : persona2)}) is thinking... Loading a local model can take a moment.</p>}
+      {isLoading && (() => {
+        const speaker = messages.length % 2 === 0 ? 'agent1' : 'agent2'
+        const number = speaker === 'agent1' ? '1' : '2'
+        return (
+          <article className={`message ${speaker} typing`} role="status">
+            <h3>Agent {number} ({getPersonaLabel(speaker === 'agent1' ? persona1 : persona2)}) - {speaker === 'agent1' ? model1 : model2}</h3>
+            <span className="typing-label">is thinking</span>
+            <div className="typing-dots" aria-hidden="true"><span /><span /><span /></div>
+            {messages.length === 0 && <p className="typing-hint">Loading a local model can take a moment.</p>}
+          </article>
+        )
+      })()}
       <div ref={end} />
     </section>
   )

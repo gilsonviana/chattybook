@@ -113,8 +113,14 @@ h1, h2, h3, p { margin: 0; }
 .message .message-copy { display: block; min-width: 102px; margin: 8px 0 0 auto; padding: 4px 8px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; font-size: .75rem; }
 .message .message-copy:hover:not(:disabled) { background: #ffffff80; }
 .message .review-warning { margin-top: 10px; padding-top: 8px; border-top: 1px solid currentColor; color: #805000; font-size: .85rem; }
-.thinking, .conversation-empty { margin-inline: 24px; }
-.thinking { color: var(--muted); font-size: .9rem; }
+.conversation-empty { margin-inline: 24px; }
+.typing-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.typing-dots { display: flex; gap: 5px; padding: 4px 0; }
+.typing-dots span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .35; animation: typing-bounce 1.2s infinite ease-in-out; }
+.typing-dots span:nth-child(2) { animation-delay: .15s; }
+.typing-dots span:nth-child(3) { animation-delay: .3s; }
+.typing-hint { margin-top: 6px; font-size: .8rem; opacity: .75; }
+@keyframes typing-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
 
 @media (max-width: 600px) {
@@ -126,11 +132,12 @@ h1, h2, h3, p { margin: 0; }
   .history-content { overflow: visible; }
   .message { max-width: calc(100% - 36px); margin-left: 18px; }
   .message.agent2 { margin-right: 18px; }
-  .thinking, .conversation-empty { margin-inline: 18px; }
+  .conversation-empty { margin-inline: 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .mode-toggle-track, .mode-toggle-thumb { transition: none; }
+  .typing-dots span { animation: none; opacity: .6; }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -149,7 +156,7 @@ h1, h2, h3, p { margin: 0; }
   :root { color-scheme: light; --background: #fff; --surface: #fff; --text: #17243b; --muted: #52647e; --border: #d3ddeb; }
   * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .app { max-width: none; padding: 0; }
-  .page-header, .conversation-nav, .actions, .fork-continuation, .error, .thinking, .message .message-copy { display: none; }
+  .page-header, .conversation-nav, .actions, .fork-continuation, .error, .message.typing, .message .message-copy { display: none; }
   .panel { border: 0; box-shadow: none; }
   .chat-window { gap: 12px; }
   .chat-title a { color: inherit; }

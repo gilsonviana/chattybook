@@ -150,7 +150,7 @@ export function ConversationView({ id }: { id: string }) {
         {conversation && (
           <div className="conversation-actions">
             <button type="button" className="secondary" onClick={forkConversation}>Fork</button>
-            <button type="button" className="secondary" onClick={exportPdf} disabled={messages.length === 0}>Export to PDF</button>
+            <button type="button" className="secondary" onClick={exportPdf} disabled={conversation.status !== 'completed' || messages.length === 0}>Export to PDF</button>
           </div>
         )}
       </div>

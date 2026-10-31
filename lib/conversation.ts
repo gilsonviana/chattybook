@@ -167,8 +167,13 @@ export interface ConversationOptions {
 export async function initializeConversation(options: ConversationOptions) {
   await requireLocalModels([options.model1, options.model2, ...(options.reviewerModel ? [options.reviewerModel] : [])])
   const forkSummary = options.forkedFromId === null ? null : await summarizeForkSource(options.forkedFromId, options.model1)
+  const { forkedFromId, ...conversationData } = options
   return prisma.conversation.create({
-    data: { ...options, forkSummary },
+    data: {
+      ...conversationData,
+      ...(forkedFromId === null ? {} : { forkedFrom: { connect: { id: forkedFromId } } }),
+      forkSummary,
+    },
     include: { messages: true },
   })
 }
