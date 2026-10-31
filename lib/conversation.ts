@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { prisma } from './db'
 import { ApiError } from './api'
 import { generateChatResponse, requireLocalModels } from './ollama'
@@ -161,9 +162,10 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
     throw new ApiError('All turns have already been generated.', 409)
   }
 
+  const generationId = randomUUID()
   const lock = await prisma.conversation.updateMany({
     where: { id: conversationId, status: 'active', updatedAt: conversation.updatedAt },
-    data: { status: 'generating' },
+    data: { status: 'generating', generationId },
   })
   if (lock.count !== 1) throw new ApiError('A response is already being generated.', 409)
 
@@ -171,9 +173,9 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
   const cancellationCheck = setInterval(() => {
     void prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { status: true },
+      select: { status: true, generationId: true },
     }).then(current => {
-      if (current?.status !== 'generating') controller.abort()
+      if (current?.status !== 'generating' || current.generationId !== generationId) controller.abort()
     }).catch(() => controller.abort())
   }, 100)
 
@@ -259,8 +261,8 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
     return await prisma.$transaction(async tx => {
       const completed = count + 1 === conversation.totalTurns * 2
       const updated = await tx.conversation.updateMany({
-        where: { id: conversationId, status: 'generating' },
-        data: { status: completed ? 'completed' : 'active' },
+        where: { id: conversationId, status: 'generating', generationId },
+        data: { status: completed ? 'completed' : 'active', generationId: null },
       })
       if (updated.count !== 1) throw new ApiError('Conversation generation was cancelled.', 409)
       await tx.message.create({
@@ -277,8 +279,8 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
     })
   } catch (error) {
     await prisma.conversation.updateMany({
-      where: { id: conversationId, status: 'generating' },
-      data: { status: 'active' },
+      where: { id: conversationId, status: 'generating', generationId },
+      data: { status: 'active', generationId: null },
     })
     if (controller.signal.aborted) throw new ApiError('Conversation generation was cancelled.', 409)
     throw error

@@ -75,10 +75,21 @@ export function ConversationView({ id }: { id: string }) {
     setError('')
     try {
       const active = await requestJson<Conversation>(`/api/conversation/${id}`)
-      setConversation(active)
-      setMessages(active.messages)
+      if (active.status === 'generating') {
+        await requestJson(`/api/conversation/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resume: true }),
+        })
+      }
+      const resumed = active.status === 'generating'
+        ? await requestJson<Conversation>(`/api/conversation/${id}`)
+        : active
+      setConversation(resumed)
+      setMessages(resumed.messages)
       if (stopRequested.current) return
-      await generateDialogue(active, updated => {
+      if (resumed.status === 'completed') return
+      await generateDialogue(resumed, updated => {
         setConversation(updated)
         setMessages(updated.messages)
       }, () => stopRequested.current)
@@ -137,10 +148,14 @@ export function ConversationView({ id }: { id: string }) {
             model1={conversation.model1}
             model2={conversation.model2}
           />
-          {(isStopping || ((isLoading || conversation.status === 'generating') && conversation.status !== 'completed')) && (
+          {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
             <div className="actions">
-              <button type="button" onClick={() => void stopConversation()} disabled={isStopping}>
-                {isStopping ? 'Stopping...' : 'Stop'}
+              <button
+                type="button"
+                onClick={() => void (!isLoading && conversation.status === 'generating' ? retryConversation() : stopConversation())}
+                disabled={isStopping}
+              >
+                {isStopping ? 'Stopping...' : !isLoading && conversation.status === 'generating' ? 'Resume' : 'Stop'}
               </button>
             </div>
           )}

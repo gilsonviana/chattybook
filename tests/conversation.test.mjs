@@ -235,6 +235,7 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.equal(createdSummaries[0].subject, 'How do libraries shape communities?')
   assert.equal(createdSummaries[0].messageCount, 0)
   assert.equal(createdSummaries[0].title, null)
+  assert.equal(createdSummaries[0].reviewerModel, null)
   assert.equal(createdSummaries[0].persona1, 'Student')
   assert.equal(createdSummaries[0].persona2, 'None')
   assert.equal(createdSummaries[0].responseLength, 'short')
@@ -243,7 +244,7 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.equal(createdSummaries[1].persona2, 'Professor')
   assert.equal(createdSummaries[1].responseLength, 'long')
   assert.deepEqual(Object.keys(createdSummaries[0]).sort(), [
-    'createdAt', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'status', 'subject', 'title', 'updatedAt',
+    'createdAt', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'reviewerModel', 'status', 'subject', 'title', 'updatedAt',
   ])
 
   const firstDetail = await api(`/api/conversation/${first.data.id}`)
@@ -349,6 +350,44 @@ test('cancelling generation aborts the model request and allows deletion without
     assert.equal(await database.message.count({ where: { conversationId: id } }), 0)
     assert.equal((await api('/api/chat', { conversationId: id, expectedMessageCount: 0 })).status, 409)
     assert.equal((await deleteConversation(id)).status, 200)
+  } finally {
+    releaseChat()
+    chatBarrier = null
+  }
+})
+
+test('resuming a generating conversation fences off the abandoned reply', async () => {
+  const created = await createConversation({ totalTurns: 1 })
+  const id = created.data.id
+  let releaseChat
+  let signalChatStarted
+  let signalChatAborted
+  const released = new Promise(resolve => { releaseChat = resolve })
+  const started = new Promise(resolve => { signalChatStarted = resolve })
+  const aborted = new Promise(resolve => { signalChatAborted = resolve })
+  chatBarrier = { started: signalChatStarted, released, aborted: signalChatAborted }
+
+  try {
+    const abandoned = api('/api/chat', { conversationId: id, expectedMessageCount: 0 })
+    await started
+    const resumeResponse = await fetch(`${base}/api/conversation/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume: true }),
+    })
+    assert.equal(resumeResponse.status, 200)
+    assert.equal((await api(`/api/conversation/${id}`)).data.status, 'active')
+
+    releaseChat()
+    const abandonedResult = await abandoned
+    assert.equal(abandonedResult.status, 409)
+    await aborted
+    chatBarrier = null
+
+    const resumed = await api('/api/chat', { conversationId: id, expectedMessageCount: 0 })
+    assert.equal(resumed.status, 200, JSON.stringify(resumed.data))
+    assert.equal(resumed.data.allMessages.length, 1)
+    assert.equal((await api(`/api/conversation/${id}`)).data.status, 'completed')
   } finally {
     releaseChat()
     chatBarrier = null

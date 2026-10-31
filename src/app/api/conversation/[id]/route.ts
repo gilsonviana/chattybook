@@ -65,7 +65,24 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       if (!body || typeof body !== 'object' || Array.isArray(body)) {
         throw new ApiError('Request body must be a JSON object.', 400)
       }
-      const { title } = body as Record<string, unknown>
+      const payload = body as Record<string, unknown>
+      if (payload.resume === true) {
+        const resumed = await prisma.conversation.updateMany({
+          where: { id: conversationId, status: 'generating' },
+          data: { status: 'active', generationId: null },
+        })
+        if (resumed.count === 0) {
+          const current = await prisma.conversation.findUnique({
+            where: { id: conversationId },
+            select: { status: true },
+          })
+          if (!current) throw new ApiError('Conversation not found.', 404)
+          if (current.status !== 'active') throw new ApiError('This conversation cannot be resumed.', 409)
+        }
+        return NextResponse.json({ success: true, status: 'active' })
+      }
+
+      const { title } = payload
       if (typeof title !== 'string' || !title.trim() || title.trim().length > 120) {
         throw new ApiError('Title must contain between 1 and 120 characters.', 400)
       }
@@ -87,7 +104,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
     const cancelled = await prisma.conversation.updateMany({
       where: { id: conversationId },
-      data: { status: 'completed' },
+      data: { status: 'completed', generationId: null },
     })
     if (cancelled.count === 0) throw new ApiError('Conversation not found.', 404)
     return NextResponse.json({ success: true, status: 'completed' })
