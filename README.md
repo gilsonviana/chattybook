@@ -63,9 +63,16 @@ restores its messages without starting generation; select **Retry / continue
 dialogue** to resume it.
 **Fork** (on the conversation page or in a history item's menu) copies a
 conversation's subject and settings into the setup form so you can change models
-or settings before starting. The new conversation starts empty and links back to
-its source; the link is removed if the source is deleted. Forking requires the
-source's models to be installed locally.
+or settings before starting. When you start, the new Agent 1 model summarizes the
+source dialogue into at most 10 key points (long transcripts are summarized in
+chunks of about 8,000 characters, each folded into the running summary, so no
+request contains the whole transcript). Both agents receive these key points with
+an instruction not to repeat them; they appear under **Key points carried over**
+on the conversation page. The new conversation starts without messages and links
+back to its source; the link is removed if the source is deleted, but the summary
+is kept. Forking an empty conversation skips the summary. If summarization fails,
+no conversation is created. Forking requires the source's models to be installed
+locally.
 **Export to PDF** on the conversation page opens the browser's print dialog with a
 print layout of the dialogue; choose **Save as PDF** as the destination.
 If generation fails, the actual error is displayed; **Retry / continue dialogue**
@@ -102,6 +109,8 @@ compound requests but does not guarantee relevance or factual accuracy.
 - `POST /api/conversation`: `{ subject, model1, model2, reviewerModel?, persona1?, persona2?, mode?, responseLength?, totalTurns?, devilsAdvocate?, forkedFromId? }`.
    `devilsAdvocate` is a boolean (default `false`). `forkedFromId` is the ID of an
    existing conversation or `null` (the default); a missing source returns 404.
+   Forking generates the summary with `model1` (512-token ceiling per request)
+   before responding.
    Personas default to `None` and can be `Student`, `Professor`, `Pastor`,
    `Politician`, or `Historian`. Mode defaults to `discussion` and can be `qa`.
    Response length defaults to `medium` and can be `short`, `medium`, or `long`.
@@ -125,7 +134,8 @@ compound requests but does not guarantee relevance or factual accuracy.
   that agent's perspective, and marks the conversation complete after both agents
   have responded for every turn. Concurrent, stale, or completed requests get 409.
 - `GET /api/conversation/:id`: retrieves the saved conversation, nullable display
-   title, `devilsAdvocate`, nullable `forkedFromId`, and ordered messages.
+   title, `devilsAdvocate`, nullable `forkedFromId`, nullable `forkSummary`, and
+   ordered messages.
    Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`
    when review does not apply or the message predates review support.
    Nullable `reviewReason` is `ok`, `disconnected`, `repetitive`, `compound`, or

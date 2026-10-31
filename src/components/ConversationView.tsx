@@ -171,6 +171,7 @@ export function ConversationView({ id }: { id: string }) {
             model2={conversation.model2}
             devilsAdvocate={conversation.devilsAdvocate}
             forkedFromId={conversation.forkedFromId}
+            forkSummary={conversation.forkSummary}
           />
           {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
             <div className="actions">

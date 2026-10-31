@@ -499,6 +499,66 @@ test('forks record their source, accept new settings, and survive source deletio
   assert.equal(orphan.data.forkedFromId, null)
 })
 
+test("forks summarize the source with Agent 1's new model and steer both agents away from its key points", async () => {
+  const empty = await createConversation({ totalTurns: 1 })
+  calls.length = 0
+  const emptyFork = await createConversation({ totalTurns: 1, forkedFromId: empty.data.id })
+  assert.equal(emptyFork.status, 201)
+  assert.equal(emptyFork.data.forkSummary, null)
+  assert.equal(calls.length, 0)
+
+  const source = await createConversation({ totalTurns: 1, persona1: 'Student' })
+  for (let index = 0; index < 2; index++) {
+    assert.equal((await api('/api/chat', { conversationId: source.data.id, expectedMessageCount: index })).status, 200)
+  }
+  const sourceMessages = (await api(`/api/conversation/${source.data.id}`)).data.messages
+  calls.length = 0
+  chatReplies = [{ content: '- Gardens need water access.\n- Zoning limits rooftop plots.' }]
+  const fork = await createConversation({ totalTurns: 1, model1: localModels[1], model2: localModels[0], forkedFromId: source.data.id })
+  assert.equal(fork.status, 201, JSON.stringify(fork.data))
+  assert.equal(fork.data.forkSummary, '- Gardens need water access.\n- Zoning limits rooftop plots.')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].model, localModels[1])
+  assert.equal(calls[0].options.num_predict, 512)
+  assert.match(calls[0].messages[0].content, /at most 10 concise key points/)
+  assert.match(calls[0].messages[1].content, /Agent 1 \(Student\): /)
+  for (const message of sourceMessages) assert.ok(calls[0].messages[1].content.includes(JSON.stringify(message.content).slice(1, -1)))
+  assert.equal((await api(`/api/conversation/${fork.data.id}`)).data.forkSummary, fork.data.forkSummary)
+
+  calls.length = 0
+  for (let index = 0; index < 2; index++) {
+    assert.equal((await api('/api/chat', { conversationId: fork.data.id, expectedMessageCount: index })).status, 200)
+  }
+  for (const call of calls) {
+    assert.match(call.messages[0].content, /fork of an earlier dialogue/)
+    assert.match(call.messages[0].content, /Zoning limits rooftop plots/)
+    assert.match(call.messages[0].content, /Do not repeat these points/)
+  }
+
+  const long = await createConversation({ totalTurns: 3 })
+  for (let index = 0; index < 4; index++) {
+    await database.message.create({ data: { conversationId: long.data.id, speaker: index % 2 ? 'agent2' : 'agent1', role: 'assistant', content: `${index}:${'x'.repeat(3000)}`, turnNumber: Math.floor(index / 2) + 1 } })
+  }
+  calls.length = 0
+  chatReplies = [{ content: '- First chunk point.' }, { content: '- Merged point.' }]
+  const chunked = await createConversation({ totalTurns: 1, forkedFromId: long.data.id })
+  assert.equal(chunked.status, 201, JSON.stringify(chunked.data))
+  assert.equal(chunked.data.forkSummary, '- Merged point.')
+  assert.equal(calls.length, 2)
+  assert.match(calls[0].messages[1].content, /part 1 of 2/)
+  assert.doesNotMatch(calls[0].messages[1].content, /"2:x/)
+  assert.match(calls[1].messages[1].content, /part 2 of 2/)
+  assert.match(calls[1].messages[1].content, /First chunk point/)
+  assert.doesNotMatch(calls[1].messages[1].content, /"0:x/)
+
+  const before = (await api('/api/conversation')).data.length
+  chatReplies = [{ status: 500 }]
+  const failed = await createConversation({ totalTurns: 1, forkedFromId: source.data.id })
+  assert.equal(failed.status, 503)
+  assert.equal((await api('/api/conversation')).data.length, before)
+  chatReplies = []
+})
+
 test('Q&A mode persists and limits every Agent 1 turn to one question', async () => {
   calls.length = 0
   const created = await createConversation({ totalTurns: 2, mode: 'qa', responseLength: 'medium', persona1: 'Student' })

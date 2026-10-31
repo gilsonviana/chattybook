@@ -15,6 +15,7 @@ export interface Conversation {
   totalTurns: number
   devilsAdvocate: boolean
   forkedFromId: number | null
+  forkSummary: string | null
   status: string
   createdAt: string
   updatedAt: string

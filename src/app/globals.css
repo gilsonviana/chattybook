@@ -90,6 +90,9 @@ h1, h2, h3, p { margin: 0; }
 .chat-title h2 { font-size: 1.2rem; overflow-wrap: anywhere; }
 .chat-title .reviewer-model { margin-top: 4px; color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
 .chat-header .chat-progress { flex: 0 0 auto; color: var(--muted); font-size: .85rem; white-space: nowrap; }
+.fork-summary { margin-inline: 24px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: .9rem; }
+.fork-summary summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+.fork-summary p { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-window { display: flex; flex-direction: column; gap: 20px; padding-bottom: 24px; }
 .message { width: fit-content; max-width: min(82%, 720px); margin: 0 auto 0 24px; padding: 14px 18px; border: 1px solid #d5e0f0; border-radius: 18px 18px 18px 5px; background: #eaf1ff; color: #183664; box-shadow: 0 2px 8px #1836640d; }
 .message.agent2 { align-self: flex-end; margin-inline: auto 24px; border-color: #dfd1ef; border-radius: 18px 18px 5px 18px; background: #f2eaff; color: #4a2d70; }
@@ -138,6 +141,7 @@ h1, h2, h3, p { margin: 0; }
   .panel { border: 0; box-shadow: none; }
   .chat-window { gap: 12px; }
   .chat-title a { color: inherit; }
+  .fork-summary { break-inside: avoid; }
   .message { max-width: 85%; box-shadow: none; break-inside: avoid; border-color: #d5e0f0; background: #eaf1ff; color: #183664; }
   .message.agent2 { border-color: #dfd1ef; background: #f2eaff; color: #4a2d70; }
   .message .review-warning { color: #805000; }

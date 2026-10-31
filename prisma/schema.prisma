@@ -21,6 +21,7 @@ model Conversation {
   totalTurns    Int
   devilsAdvocate Boolean    @default(false)
   forkedFromId  Int?
+  forkSummary   String?
   status        String      @default("active")
   generationId  String?
   createdAt     DateTime    @default(now())

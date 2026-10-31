@@ -26,9 +26,10 @@ interface ChatWindowProps {
   model2: string
   devilsAdvocate: boolean
   forkedFromId: number | null
+  forkSummary: string | null
 }
 
-export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTurns, persona1, persona2, model1, model2, devilsAdvocate, forkedFromId }: ChatWindowProps) {
+export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTurns, persona1, persona2, model1, model2, devilsAdvocate, forkedFromId, forkSummary }: ChatWindowProps) {
   const end = useRef<HTMLDivElement>(null)
   const [copyStatus, setCopyStatus] = useState<{ messageId: number; status: 'copied' | 'error' } | null>(null)
   const completedTurns = Math.floor(messages.length / 2)
@@ -58,6 +59,12 @@ export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTur
         </div>
         <p className="chat-progress">{progress}%</p>
       </header>
+      {forkSummary && (
+        <details className="fork-summary">
+          <summary>Key points carried over from the forked conversation</summary>
+          <p>{forkSummary}</p>
+        </details>
+      )}
       {messages.length === 0 && <p className="muted conversation-empty">The agents&apos; responses will appear here.</p>}
       {messages.map(message => (
         <article key={message.id} className={`message ${message.speaker}`}>

@@ -260,7 +260,7 @@ export default function Home() {
         <form className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
           {forkSource && (
             <div className="fork-banner" role="status">
-              <p>Forking <strong>{displayTitle(forkSource)}</strong>. Adjust the models and settings, then start.</p>
+              <p>Forking <strong>{displayTitle(forkSource)}</strong>. Adjust the models and settings, then start. Agent 1&apos;s model first summarizes its key points so the new dialogue avoids repeating them.</p>
               <button type="button" className="secondary" onClick={() => setForkSource(null)} disabled={isLoading}>Clear</button>
             </div>
           )}
@@ -270,7 +270,7 @@ export default function Home() {
               <input ref={subjectInput} value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
             </label>
             <button type="submit" disabled={isLoading || forkingConversationId !== null || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
-              {isLoading ? 'Starting...' : 'Start'}
+              {isLoading ? forkSource ? 'Summarizing...' : 'Starting...' : 'Start'}
             </button>
           </div>
           <div className="dialogue-options">
