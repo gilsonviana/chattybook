@@ -1,4 +1,3 @@
-import type { Persona } from '../personas'
 import type { ConversationMode } from '../conversation-mode'
 import type { ResponseLength } from '../response-length'
 
@@ -9,8 +8,8 @@ export interface Conversation {
   model1: string
   model2: string
   reviewerModel: string | null
-  persona1: Persona
-  persona2: Persona
+  persona1: string
+  persona2: string
   mode: ConversationMode
   responseLength: ResponseLength
   totalTurns: number
@@ -25,8 +24,8 @@ export interface ConversationSummary {
   subject: string
   title: string | null
   status: string
-  persona1: Persona
-  persona2: Persona
+  persona1: string
+  persona2: string
   responseLength: ResponseLength
   createdAt: string
   updatedAt: string

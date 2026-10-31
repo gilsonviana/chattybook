@@ -35,7 +35,8 @@ response from each agent: **10 generated responses** in total.
    available models, enter a subject, choose a model and persona for each agent,
    optionally enable Q&A mode and choose a response length, then select **Start
    dialogue**. Personas can be set independently to None, Student, Professor,
-   Minister, Politician, or Historian. Response length applies to both agents.
+   Pastor, Politician, or Historian. Each provides a distinct role-appropriate
+   voice and subject lens. Response length applies to both agents.
    Short prompts require exactly one paragraph with at most 25 words; Medium
    allows up to 3 paragraphs; Long allows up to 7 paragraphs in discussion mode only.
    These are prompt instructions, not output validation; models may exceed the limits.
@@ -88,7 +89,7 @@ compound requests but does not guarantee relevance or factual accuracy.
   names, or `{ models: [], error }` (503). An empty successful list means no models
   are installed. Use **Refresh models** after installing a model or starting Ollama.
 - `POST /api/conversation`: `{ subject, model1, model2, reviewerModel?, persona1?, persona2?, mode?, responseLength?, totalTurns? }`.
-   Personas default to `None` and can be `Student`, `Professor`, `Minister`,
+   Personas default to `None` and can be `Student`, `Professor`, `Pastor`,
    `Politician`, or `Historian`. Mode defaults to `discussion` and can be `qa`.
    Response length defaults to `medium` and can be `short`, `medium`, or `long`.
    Q&A rejects `long` with HTTP 400. Existing Q&A conversations saved with `long`

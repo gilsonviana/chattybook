@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import type { Persona } from '../../lib/personas'
+import { getPersonaLabel } from '../../lib/personas'
 import type { Message } from '../../lib/types'
 
 const reviewReasonLabels: Partial<Record<NonNullable<Message['reviewReason']>, string>> = {
@@ -18,8 +18,8 @@ interface ChatWindowProps {
   messages: Message[]
   isLoading: boolean
   totalTurns: number
-  persona1: Persona
-  persona2: Persona
+  persona1: string
+  persona2: string
   model1: string
   model2: string
 }
@@ -41,7 +41,7 @@ export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, p
       {messages.length === 0 && <p className="muted conversation-empty">The agents&apos; responses will appear here.</p>}
       {messages.map(message => (
         <article key={message.id} className={`message ${message.speaker}`}>
-          <h3>Agent {message.speaker === 'agent1' ? '1' : '2'} ({message.speaker === 'agent1' ? persona1 : persona2}) - {message.speaker === 'agent1' ? model1 : model2} <span>Turn {message.turnNumber}</span></h3>
+          <h3>Agent {message.speaker === 'agent1' ? '1' : '2'} ({getPersonaLabel(message.speaker === 'agent1' ? persona1 : persona2)}) - {message.speaker === 'agent1' ? model1 : model2} <span>Turn {message.turnNumber}</span></h3>
           <p>{message.content}</p>
           {(message.reviewStatus === 'rejected' || message.reviewStatus === 'unchecked') && (
             <p className="review-warning" role="note">
@@ -52,7 +52,7 @@ export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, p
           )}
         </article>
       ))}
-      {isLoading && <p className="thinking" role="status">Agent {messages.length % 2 + 1} ({messages.length % 2 === 0 ? persona1 : persona2}) is thinking... Loading a local model can take a moment.</p>}
+      {isLoading && <p className="thinking" role="status">Agent {messages.length % 2 + 1} ({getPersonaLabel(messages.length % 2 === 0 ? persona1 : persona2)}) is thinking... Loading a local model can take a moment.</p>}
       <div ref={end} />
     </section>
   )

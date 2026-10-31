@@ -192,7 +192,7 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
     if (isQaAnswer && !latestQuestion) throw new ApiError('The Q&A answer requires an Agent 1 question.', 409)
     const personaInstruction = isPersona(persona) && persona !== 'None'
       ? isQaConversation
-        ? `Use the voice and perspective of a ${persona.toLowerCase()} only; persona must not change ${isQaQuestion ? 'the one-question limit' : 'the scope of the question being answered'} or the response-length limits.`
+        ? `${getPersonaInstruction(persona)} This persona shapes voice and relevant context only; it must not change ${isQaQuestion ? 'the one-question limit' : 'the scope of the question being answered'} or the response-length limits.`
         : getPersonaInstruction(persona)
       : ''
     const responseLength = resolveResponseLength(isQaConversation ? 'qa' : 'discussion', isResponseLength(conversation.responseLength) ? conversation.responseLength : 'medium')
