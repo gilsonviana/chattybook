@@ -33,6 +33,8 @@ export default function Home() {
   const [isSavingRename, setIsSavingRename] = useState(false)
   const renameDialog = useRef<HTMLDialogElement>(null)
   const renameInput = useRef<HTMLInputElement>(null)
+  const homeLayoutRef = useRef<HTMLDivElement>(null)
+  const setupFormRef = useRef<HTMLFormElement>(null)
   const [health, setHealth] = useState<OllamaHealth | null>(null)
   const [checking, setChecking] = useState(true)
   const [models, setModels] = useState<string[]>([])
@@ -64,6 +66,20 @@ export default function Home() {
     }).finally(() => {
       setChecking(false)
     })
+  }, [])
+
+  useEffect(() => {
+    const layout = homeLayoutRef.current
+    const setupForm = setupFormRef.current
+    if (!layout || !setupForm) return
+
+    const updateHistoryHeight = () => {
+      layout.style.setProperty('--setup-height', `${setupForm.getBoundingClientRect().height}px`)
+    }
+    const observer = new ResizeObserver(updateHistoryHeight)
+    updateHistoryHeight()
+    observer.observe(setupForm)
+    return () => observer.disconnect()
   }, [])
 
   useEffect(() => {
@@ -244,20 +260,21 @@ export default function Home() {
         <p>Two AI agents explore a subject, one response at a time.</p>
       </header>
 
-      <section className="connection panel" aria-label="Ollama connection">
-        <div role="status">
-          <strong>{checking ? 'Checking Ollama...' : health?.running ? `Ollama connected (${health.version})` : 'Ollama unavailable'}</strong>
-          <p className="muted">{models.length} local models available. No cloud models are used.</p>
-        </div>
-        <button className="secondary" onClick={() => { setChecking(true); setError(''); void refreshOllama() }} disabled={checking || isLoading}>Refresh models</button>
+      <section className="connection" aria-label="Ollama connection">
+        <span
+          className={`connection-indicator${health?.running ? ' is-connected' : ''}`}
+          role="status"
+          aria-label={checking ? 'Checking Ollama connection' : health?.running ? 'Ollama connected' : 'Ollama unavailable'}
+        />
+        <span className="connection-label">Ollama health</span>
       </section>
       {error && <div className="error" role="alert">{error}</div>}
       {!checking && health?.running && models.length === 0 && (
-        <p className="error" role="alert">No local models found. Install one with <code>ollama pull qwen3.5:4b</code>, then refresh models.</p>
+        <p className="error" role="alert">No local models found. Install one with <code>ollama pull qwen3.5:4b</code>, then reload this page.</p>
       )}
 
-      <div className="home-layout">
-        <form className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
+      <div className="home-layout" ref={homeLayoutRef}>
+        <form ref={setupFormRef} className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
           {forkSource && (
             <div className="fork-banner" role="status">
               <p>Forking <strong>{displayTitle(forkSource)}</strong>. Adjust the models and settings, then start. Agent 1&apos;s model first summarizes its key points so the new dialogue avoids repeating them.</p>
@@ -339,62 +356,64 @@ export default function Home() {
             <h2 id="history-heading">Previous conversations</h2>
             <span className="muted">{history.length}</span>
           </div>
-          {historyError && <p className="error" role="alert">{historyError}</p>}
-          {actionError && <p className="error" role="alert">{actionError}</p>}
-          {!historyError && history.length === 0 && <p className="muted">No saved conversations yet.</p>}
-          {history.length > 0 && (
-            <ul className="history-list">
-              {history.map(conversation => (
-                <li className="history-item" key={conversation.id}>
-                  <Link href={`/conversation/${conversation.id}`}>
-                    <span className="history-subject">{displayTitle(conversation)}</span>
-                    <span className="history-meta">
-                      {[
-                        ...(conversation.status === 'generating' ? ['Generating'] : []),
-                        ...[conversation.persona1, conversation.persona2].filter(persona => persona !== 'None'),
-                        ...(conversation.devilsAdvocate ? ["Devil's advocate"] : []),
-                        ...(conversation.reviewerModel ? [`Reviewer: ${conversation.reviewerModel}`] : []),
-                        conversation.responseLength.charAt(0).toUpperCase() + conversation.responseLength.slice(1),
-                      ].join(' · ')}
-                    </span>
-                  </Link>
-                  <details className="history-menu">
-                    <summary aria-label={`Actions for ${displayTitle(conversation)}`} title="Conversation actions">⋮</summary>
-                    <div className="history-menu-actions">
-                      <button
-                        type="button"
-                        className="history-menu-action"
-                        disabled={isLoading || checking || pendingConversationId !== null || forkingConversationId !== null}
-                        onClick={event => { void forkFromHistory(conversation, event.currentTarget) }}
-                      >
-                        {forkingConversationId === conversation.id ? 'Forking...' : 'Fork'}
-                      </button>
-                      {conversation.status === 'completed' && (
+          <div className="history-content">
+            {historyError && <p className="error" role="alert">{historyError}</p>}
+            {actionError && <p className="error" role="alert">{actionError}</p>}
+            {!historyError && history.length === 0 && <p className="muted">No saved conversations yet.</p>}
+            {history.length > 0 && (
+              <ul className="history-list">
+                {history.map(conversation => (
+                  <li className="history-item" key={conversation.id}>
+                    <Link href={`/conversation/${conversation.id}`}>
+                      <span className="history-subject">{displayTitle(conversation)}</span>
+                      <span className="history-meta">
+                        {[
+                          ...(conversation.status === 'generating' ? ['Generating'] : []),
+                          ...[conversation.persona1, conversation.persona2].filter(persona => persona !== 'None'),
+                          ...(conversation.devilsAdvocate ? ["Devil's advocate"] : []),
+                          ...(conversation.reviewerModel ? [`Reviewer: ${conversation.reviewerModel}`] : []),
+                          conversation.responseLength.charAt(0).toUpperCase() + conversation.responseLength.slice(1),
+                        ].join(' · ')}
+                      </span>
+                    </Link>
+                    <details className="history-menu">
+                      <summary aria-label={`Actions for ${displayTitle(conversation)}`} title="Conversation actions">⋮</summary>
+                      <div className="history-menu-actions">
                         <button
                           type="button"
                           className="history-menu-action"
-                          disabled={pendingConversationId !== null || forkingConversationId !== null}
-                          onClick={event => openRename(conversation, event.currentTarget)}
+                          disabled={isLoading || checking || pendingConversationId !== null || forkingConversationId !== null}
+                          onClick={event => { void forkFromHistory(conversation, event.currentTarget) }}
                         >
-                          Rename
+                          {forkingConversationId === conversation.id ? 'Forking...' : 'Fork'}
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        className="history-menu-action history-menu-delete"
-                        disabled={pendingConversationId !== null || forkingConversationId !== null}
-                        onClick={() => { void manageConversation(conversation) }}
-                      >
-                        {conversation.status === 'generating'
-                          ? pendingConversationId === conversation.id ? 'Cancelling...' : 'Cancel'
-                          : pendingConversationId === conversation.id ? 'Deleting...' : 'Delete'}
-                      </button>
-                    </div>
-                  </details>
-                </li>
-              ))}
-            </ul>
-          )}
+                        {conversation.status === 'completed' && (
+                          <button
+                            type="button"
+                            className="history-menu-action"
+                            disabled={pendingConversationId !== null || forkingConversationId !== null}
+                            onClick={event => openRename(conversation, event.currentTarget)}
+                          >
+                            Rename
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="history-menu-action history-menu-delete"
+                          disabled={pendingConversationId !== null || forkingConversationId !== null}
+                          onClick={() => { void manageConversation(conversation) }}
+                        >
+                          {conversation.status === 'generating'
+                            ? pendingConversationId === conversation.id ? 'Cancelling...' : 'Cancel'
+                            : pendingConversationId === conversation.id ? 'Deleting...' : 'Delete'}
+                        </button>
+                      </div>
+                    </details>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </aside>
       </div>
       {renameTarget && (
