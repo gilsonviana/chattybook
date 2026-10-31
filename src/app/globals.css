@@ -116,8 +116,8 @@ h1, h2, h3, p { margin: 0; }
 .message h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: .85rem; margin-bottom: 8px; }
 .message h3 span { flex: 0 0 auto; color: var(--muted); font-size: .75rem; font-weight: 400; white-space: nowrap; }
 .message p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.message .message-copy { display: block; min-width: 102px; margin: 8px 0 0 auto; padding: 4px 8px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; font-size: .75rem; }
-.message .message-copy:hover:not(:disabled) { background: #ffffff80; }
+.message .message-copy { display: grid; width: 28px; height: 28px; place-items: center; margin: 8px auto 0 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; opacity: .65; }
+.message .message-copy:hover:not(:disabled) { background: #ffffff80; opacity: 1; }
 .message .review-warning { margin-top: 10px; padding-top: 8px; border-top: 1px solid currentColor; color: #805000; font-size: .85rem; }
 .conversation-empty { margin-inline: 24px; }
 .typing-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

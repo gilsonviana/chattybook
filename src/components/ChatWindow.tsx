@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, type RefObject } from 'react'
+import { AlertCircle, Check, Copy } from 'lucide-react'
 import { getPersonaLabel } from '../../lib/personas'
 import type { Message } from '../../lib/types'
 
@@ -58,12 +59,17 @@ export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, p
           <button
             type="button"
             className="message-copy"
-            aria-label={`Copy response from Agent ${message.speaker === 'agent1' ? '1' : '2'}`}
+            aria-label={copyStatus?.messageId === message.id
+              ? copyStatus.status === 'copied' ? 'Response copied' : 'Copy failed'
+              : `Copy response from Agent ${message.speaker === 'agent1' ? '1' : '2'}`}
+            title={copyStatus?.messageId === message.id
+              ? copyStatus.status === 'copied' ? 'Copied' : 'Copy failed'
+              : 'Copy response'}
             onClick={() => void copyResponse(message)}
           >
             {copyStatus?.messageId === message.id
-              ? copyStatus.status === 'copied' ? 'Copied' : 'Copy failed'
-              : 'Copy response'}
+              ? copyStatus.status === 'copied' ? <Check size={14} aria-hidden="true" /> : <AlertCircle size={14} aria-hidden="true" />
+              : <Copy size={14} aria-hidden="true" />}
           </button>
           {(message.reviewStatus === 'rejected' || message.reviewStatus === 'unchecked') && (
             <p className="review-warning" role="note">

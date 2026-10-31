@@ -645,6 +645,25 @@ test('summaries default to Agent 1, persist, regenerate with a chosen model, and
   chatReplies = []
 })
 
+test('forks reuse a saved source summary without generating another summary', async () => {
+  const source = await createConversation({ totalTurns: 1 })
+  for (let index = 0; index < 2; index++) {
+    assert.equal((await api('/api/chat', { conversationId: source.data.id, expectedMessageCount: index })).status, 200)
+  }
+
+  calls.length = 0
+  chatReplies = [{ content: '- The source already covered water access.' }]
+  const summary = await api(`/api/conversation/${source.data.id}/summarize`, {})
+  assert.equal(summary.status, 200, JSON.stringify(summary.data))
+
+  calls.length = 0
+  chatReplies = []
+  const fork = await createConversation({ totalTurns: 1, forkedFromId: source.data.id })
+  assert.equal(fork.status, 201, JSON.stringify(fork.data))
+  assert.equal(fork.data.forkSummary, summary.data.summary)
+  assert.equal(calls.length, 0)
+})
+
 test('summaries fold long stopped dialogues and exclude inherited fork context', async () => {
   const created = await createConversation({ totalTurns: 3 })
   await database.conversation.update({ where: { id: created.data.id }, data: { forkSummary: '- Inherited point.' } })

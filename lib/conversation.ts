@@ -117,6 +117,7 @@ async function summarizeForkSource(sourceId: number, model: string): Promise<str
     include: { messages: { orderBy: { id: 'asc' } } },
   })
   if (!source) throw new ApiError('The conversation being forked no longer exists.', 404)
+  if (source.summary !== null) return source.summary
   return summarizeTranscript(source, model, true)
 }
 
