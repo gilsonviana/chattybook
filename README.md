@@ -49,6 +49,10 @@ response from each agent: **10 generated responses** in total.
    **Review model** selects an installed local model to assess follow-ups; its
    default follows Agent 1's model. Openers, Agent 2 replies, and discussion-mode
    messages are not reviewed.
+   **Devil's advocate** makes Agent 1 skeptical: in discussion mode it questions
+   Agent 2's claims and tries to refute them; in Q&A mode its questions challenge a
+   specific claim or assumption in Agent 2's latest answer (still one question per
+   turn). Agent 2's instructions are unchanged.
 
 Each answer appears when generation and any follow-up review finish. The first request can
 take longer while Ollama loads model weights. Existing answers stay visible while
@@ -57,6 +61,13 @@ Each conversation has its own `/conversation/{id}` URL, and the home page lists
 previous conversations so they can be reopened. Opening an unfinished saved chat
 restores its messages without starting generation; select **Retry / continue
 dialogue** to resume it.
+**Fork** (on the conversation page or in a history item's menu) copies a
+conversation's subject and settings into the setup form so you can change models
+or settings before starting. The new conversation starts empty and links back to
+its source; the link is removed if the source is deleted. Forking requires the
+source's models to be installed locally.
+**Export to PDF** on the conversation page opens the browser's print dialog with a
+print layout of the dialogue; choose **Save as PDF** as the destination.
 If generation fails, the actual error is displayed; **Retry / continue dialogue**
 reloads persisted messages and resumes without adding a fake or empty answer.
 
@@ -88,7 +99,9 @@ compound requests but does not guarantee relevance or factual accuracy.
 - `GET /api/ollama/models`: `{ models: string[] }` containing installed local model
   names, or `{ models: [], error }` (503). An empty successful list means no models
   are installed. Use **Refresh models** after installing a model or starting Ollama.
-- `POST /api/conversation`: `{ subject, model1, model2, reviewerModel?, persona1?, persona2?, mode?, responseLength?, totalTurns? }`.
+- `POST /api/conversation`: `{ subject, model1, model2, reviewerModel?, persona1?, persona2?, mode?, responseLength?, totalTurns?, devilsAdvocate?, forkedFromId? }`.
+   `devilsAdvocate` is a boolean (default `false`). `forkedFromId` is the ID of an
+   existing conversation or `null` (the default); a missing source returns 404.
    Personas default to `None` and can be `Student`, `Professor`, `Pastor`,
    `Politician`, or `Historian`. Mode defaults to `discussion` and can be `qa`.
    Response length defaults to `medium` and can be `short`, `medium`, or `long`.
@@ -100,7 +113,8 @@ compound requests but does not guarantee relevance or factual accuracy.
    or `null` (the default, using Agent 1's model). Review has a separate 256-token
    ceiling. Existing conversations use the same default without rewriting history.
 - `GET /api/conversation`: returns newest-first conversation summaries with IDs,
-   subjects, nullable display titles, status, timestamps, and message counts. When
+   subjects, nullable display titles, status, devil's advocate flags, timestamps,
+   and message counts. When
    a title is `null`, the UI displays the subject.
 - `PATCH /api/conversation/:id`: `{ title }` renames a completed conversation.
    Titles are trimmed and must contain 1 to 120 characters. The original subject
@@ -111,7 +125,7 @@ compound requests but does not guarantee relevance or factual accuracy.
   that agent's perspective, and marks the conversation complete after both agents
   have responded for every turn. Concurrent, stale, or completed requests get 409.
 - `GET /api/conversation/:id`: retrieves the saved conversation, nullable display
-   title, and ordered messages.
+   title, `devilsAdvocate`, nullable `forkedFromId`, and ordered messages.
    Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`
    when review does not apply or the message predates review support.
    Nullable `reviewReason` is `ok`, `disconnected`, `repetitive`, `compound`, or
@@ -134,17 +148,30 @@ npm run lint
 npm test
 ```
 
-Run the optional labeled reviewer evaluation against an installed local model
 Run the optional labeled reviewer evaluation against an installed local model:
 
 ```sh
 npm run reviewer:eval -- gemma2:2b
-npm run reviewer:eval -- qwen2.5:latest
+npm run reviewer:eval -- qwen2.5:latest --json reports/qwen.json --min-score 80
 ```
 
-The evaluator uses the production reviewer prompt and schema, reports expected
-and actual labels for balanced positive and negative cases, and exits nonzero on
-mismatches. It does not download models and is not part of `npm test`.
+The evaluator uses the production reviewer prompt, schema, and verdict parser on
+balanced accept and retry cases covering every review reason. Each case is
+scored on four rules, combined into a weighted 0-100 score:
+
+| Rule | Weight | Passes when |
+| --- | --- | --- |
+| warning | 40 | A quality warning is shown exactly when expected (invalid output counts as an unverified warning, as in the app) |
+| reason | 30 | The reason label matches |
+| schema | 15 | The output is valid schema JSON with a consistent verdict and reason |
+| explanation | 15 | A rejection includes a one-line explanation of at most 240 characters |
+
+It also reports quality-warning precision, recall, and F1, and reason accuracy
+per expected label. `--json <path>` saves the full report, including raw outputs
+and a SHA-256 of the reviewer prompt, so runs can be compared across prompt
+revisions. The command exits nonzero when the score is below `--min-score`
+(default 100). It does not download models and is not part of `npm test`; the
+scoring logic itself is unit-tested there.
 
 `npm test` builds the production app and tests the real HTTP routes against a
 controlled local Ollama-compatible fixture and a temporary SQLite database. It

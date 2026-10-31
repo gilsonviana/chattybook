@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { requestJson } from '../../lib/client'
 import type { Conversation, Message } from '../../lib/types'
@@ -23,6 +24,7 @@ async function generateDialogue(active: Conversation, update: (conversation: Con
 }
 
 export function ConversationView({ id }: { id: string }) {
+  const router = useRouter()
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -122,6 +124,20 @@ export function ConversationView({ id }: { id: string }) {
     }
   }
 
+  function forkConversation() {
+    window.sessionStorage.setItem('chattybook:fork', id)
+    router.push('/')
+  }
+
+  function exportPdf() {
+    if (!conversation) return
+    // The browser's print dialog offers Save as PDF; the document title becomes the default file name.
+    const previousTitle = document.title
+    document.title = `ChattyBook - ${conversation.title ?? conversation.subject}`
+    window.addEventListener('afterprint', () => { document.title = previousTitle }, { once: true })
+    window.print()
+  }
+
   return (
     <main className="app">
       <header className="page-header">
@@ -131,6 +147,12 @@ export function ConversationView({ id }: { id: string }) {
       </header>
       <div className="conversation-nav">
         <Link href="/">New dialogue</Link>
+        {conversation && (
+          <div className="conversation-actions">
+            <button type="button" className="secondary" onClick={forkConversation}>Fork</button>
+            <button type="button" className="secondary" onClick={exportPdf} disabled={messages.length === 0}>Export to PDF</button>
+          </div>
+        )}
       </div>
       {isLoading && !conversation && <p className="muted" role="status">Loading conversation...</p>}
       {error && <div className="error" role="alert">{error}</div>}
@@ -147,6 +169,8 @@ export function ConversationView({ id }: { id: string }) {
             persona2={conversation.persona2}
             model1={conversation.model1}
             model2={conversation.model2}
+            devilsAdvocate={conversation.devilsAdvocate}
+            forkedFromId={conversation.forkedFromId}
           />
           {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
             <div className="actions">

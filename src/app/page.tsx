@@ -25,6 +25,9 @@ export default function Home() {
   const [historyError, setHistoryError] = useState('')
   const [actionError, setActionError] = useState('')
   const [pendingConversationId, setPendingConversationId] = useState<number | null>(null)
+  const [forkingConversationId, setForkingConversationId] = useState<number | null>(null)
+  const [forkSource, setForkSource] = useState<Pick<ConversationSummary, 'id' | 'subject' | 'title'> | null>(null)
+  const subjectInput = useRef<HTMLInputElement>(null)
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [isSavingRename, setIsSavingRename] = useState(false)
@@ -42,6 +45,7 @@ export default function Home() {
   const [persona2, setPersona2] = useState<Persona>('None')
   const [mode, setMode] = useState<ConversationMode>('qa')
   const [responseLength, setResponseLength] = useState<ResponseLength>('medium')
+  const [devilsAdvocate, setDevilsAdvocate] = useState(false)
 
   const refreshOllama = useCallback(() => {
     return requestJson<OllamaHealth>('/api/ollama/health').then(async status => {
@@ -51,10 +55,12 @@ export default function Home() {
       setModel1(current => available.includes(current) ? current : available[0] || '')
       setModel2(current => available.includes(current) ? current : available[1] || available[0] || '')
       setReviewerModel(current => current && available.includes(current) ? current : null)
+      return available
     }).catch(error => {
       setHealth(null)
       setModels([])
       setError(error instanceof Error ? error.message : 'Could not connect to Ollama.')
+      return null
     }).finally(() => {
       setChecking(false)
     })
@@ -75,12 +81,20 @@ export default function Home() {
         const restoredMode = isConversationMode(settings.mode) ? settings.mode : 'qa'
         setMode(restoredMode)
         if (isResponseLength(settings.responseLength)) setResponseLength(resolveResponseLength(restoredMode, settings.responseLength))
+        if (typeof settings.devilsAdvocate === 'boolean') setDevilsAdvocate(settings.devilsAdvocate)
       } catch {
         return
       }
     }
     restoreSettings()
-    void refreshOllama()
+    const forkId = Number(window.sessionStorage.getItem('chattybook:fork'))
+    window.sessionStorage.removeItem('chattybook:fork')
+    void refreshOllama().then(available => {
+      if (!Number.isSafeInteger(forkId) || forkId < 1) return
+      void forkConversation(forkId, available ?? []).catch(error => {
+        setError(error instanceof Error ? error.message : 'Could not fork the conversation.')
+      })
+    })
   }, [refreshOllama])
 
   useEffect(() => {
@@ -88,12 +102,12 @@ export default function Home() {
     try {
       window.localStorage.setItem('chattybook:settings', JSON.stringify({
         turns: typeof turns === 'number' && Number.isInteger(turns) && turns >= 1 && turns <= 100 ? turns : 5,
-        model1, model2, reviewerModel, persona1, persona2, mode, responseLength,
+        model1, model2, reviewerModel, persona1, persona2, mode, responseLength, devilsAdvocate,
       }))
     } catch {
       return
     }
-  }, [checking, turns, model1, model2, reviewerModel, persona1, persona2, mode, responseLength])
+  }, [checking, turns, model1, model2, reviewerModel, persona1, persona2, mode, responseLength, devilsAdvocate])
 
   useEffect(() => {
     let mounted = true
@@ -114,14 +128,14 @@ export default function Home() {
   }, [renameTarget])
 
   async function startConversation() {
-    if (!subject.trim() || !model1 || !model2 || !validTurns || !health?.running) return
+    if (forkingConversationId !== null || !subject.trim() || !model1 || !model2 || !validTurns || !health?.running) return
     setIsLoading(true)
     setError('')
     try {
       const active = await requestJson<Conversation>('/api/conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, model1, model2, reviewerModel: mode === 'qa' ? reviewerModel : null, persona1, persona2, mode, responseLength, totalTurns: turns }),
+        body: JSON.stringify({ subject, model1, model2, reviewerModel: mode === 'qa' ? reviewerModel : null, persona1, persona2, mode, responseLength, totalTurns: turns, devilsAdvocate, forkedFromId: forkSource?.id ?? null }),
       })
       window.sessionStorage.setItem('chattybook:new-conversation', String(active.id))
       router.push(`/conversation/${active.id}`)
@@ -129,6 +143,45 @@ export default function Home() {
       setError(error instanceof Error ? error.message : 'Could not start the dialogue.')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  async function forkConversation(conversationId: number, availableModels: string[]) {
+    setForkingConversationId(conversationId)
+    try {
+      const saved = await requestJson<Conversation>(`/api/conversation/${conversationId}`)
+      const missingModels = [...new Set([saved.model1, saved.model2, ...(saved.reviewerModel ? [saved.reviewerModel] : [])])]
+        .filter(model => !availableModels.includes(model))
+      if (missingModels.length) {
+        throw new Error(`Cannot fork: these models are unavailable locally: ${missingModels.join(', ')}. Install them and refresh models first.`)
+      }
+      setSubject(saved.subject)
+      setTurns(saved.totalTurns)
+      setModel1(saved.model1)
+      setModel2(saved.model2)
+      setReviewerModel(saved.reviewerModel)
+      setPersona1(isPersona(saved.persona1) ? saved.persona1 : 'None')
+      setPersona2(isPersona(saved.persona2) ? saved.persona2 : 'None')
+      setMode(saved.mode)
+      setResponseLength(resolveResponseLength(saved.mode, saved.responseLength))
+      setDevilsAdvocate(saved.devilsAdvocate)
+      setForkSource({ id: saved.id, subject: saved.subject, title: saved.title })
+      setError('')
+      subjectInput.current?.focus()
+      subjectInput.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } finally {
+      setForkingConversationId(null)
+    }
+  }
+
+  async function forkFromHistory(conversation: ConversationSummary, trigger: HTMLButtonElement) {
+    if (isLoading || checking || pendingConversationId !== null || forkingConversationId !== null) return
+    setActionError('')
+    trigger.closest('details')?.removeAttribute('open')
+    try {
+      await forkConversation(conversation.id, models)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not fork the conversation.')
     }
   }
 
@@ -205,12 +258,18 @@ export default function Home() {
 
       <div className="home-layout">
         <form className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
+          {forkSource && (
+            <div className="fork-banner" role="status">
+              <p>Forking <strong>{displayTitle(forkSource)}</strong>. Adjust the models and settings, then start.</p>
+              <button type="button" className="secondary" onClick={() => setForkSource(null)} disabled={isLoading}>Clear</button>
+            </div>
+          )}
           <div className="subject-row">
             <label>
               Discussion subject
-              <input value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
+              <input ref={subjectInput} value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
             </label>
-            <button type="submit" disabled={isLoading || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
+            <button type="submit" disabled={isLoading || forkingConversationId !== null || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
               {isLoading ? 'Starting...' : 'Start'}
             </button>
           </div>
@@ -219,22 +278,37 @@ export default function Home() {
               Number of turns
               <input className="turns-input" type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} />
             </label>
-            <button
-              type="button"
-              className="mode-toggle"
-              role="switch"
-              aria-checked={mode === 'qa'}
-              onClick={() => {
-                const nextMode = mode === 'qa' ? 'discussion' : 'qa'
-                setMode(nextMode)
-                setResponseLength(current => resolveResponseLength(nextMode, current))
-              }}
-              disabled={isLoading}
-            >
-              <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
-              <span>Q&amp;A mode</span>
-              <span className="mode-toggle-state" aria-hidden="true">{mode === 'qa' ? 'On' : 'Off'}</span>
-            </button>
+            <div className="dialogue-toggles">
+              <button
+                type="button"
+                className="mode-toggle"
+                role="switch"
+                aria-checked={mode === 'qa'}
+                onClick={() => {
+                  const nextMode = mode === 'qa' ? 'discussion' : 'qa'
+                  setMode(nextMode)
+                  setResponseLength(current => resolveResponseLength(nextMode, current))
+                }}
+                disabled={isLoading}
+              >
+                <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
+                <span>Q&amp;A mode</span>
+                <span className="mode-toggle-state" aria-hidden="true">{mode === 'qa' ? 'On' : 'Off'}</span>
+              </button>
+              <button
+                type="button"
+                className="mode-toggle"
+                role="switch"
+                aria-checked={devilsAdvocate}
+                title="Agent 1 questions Agent 2's responses and tries to refute them."
+                onClick={() => setDevilsAdvocate(current => !current)}
+                disabled={isLoading}
+              >
+                <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
+                <span>Devil&apos;s advocate</span>
+                <span className="mode-toggle-state" aria-hidden="true">{devilsAdvocate ? 'On' : 'Off'}</span>
+              </button>
+            </div>
           </div>
           <p className="muted">One turn includes a response from each agent. Default: 5 turns (10 responses).</p>
           <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
@@ -276,6 +350,7 @@ export default function Home() {
                       {[
                         ...(conversation.status === 'generating' ? ['Generating'] : []),
                         ...[conversation.persona1, conversation.persona2].filter(persona => persona !== 'None'),
+                        ...(conversation.devilsAdvocate ? ["Devil's advocate"] : []),
                         ...(conversation.reviewerModel ? [`Reviewer: ${conversation.reviewerModel}`] : []),
                         conversation.responseLength.charAt(0).toUpperCase() + conversation.responseLength.slice(1),
                       ].join(' · ')}
@@ -284,11 +359,19 @@ export default function Home() {
                   <details className="history-menu">
                     <summary aria-label={`Actions for ${displayTitle(conversation)}`} title="Conversation actions">⋮</summary>
                     <div className="history-menu-actions">
+                      <button
+                        type="button"
+                        className="history-menu-action"
+                        disabled={isLoading || checking || pendingConversationId !== null || forkingConversationId !== null}
+                        onClick={event => { void forkFromHistory(conversation, event.currentTarget) }}
+                      >
+                        {forkingConversationId === conversation.id ? 'Forking...' : 'Fork'}
+                      </button>
                       {conversation.status === 'completed' && (
                         <button
                           type="button"
                           className="history-menu-action"
-                          disabled={pendingConversationId !== null}
+                          disabled={pendingConversationId !== null || forkingConversationId !== null}
                           onClick={event => openRename(conversation, event.currentTarget)}
                         >
                           Rename
@@ -297,7 +380,7 @@ export default function Home() {
                       <button
                         type="button"
                         className="history-menu-action history-menu-delete"
-                        disabled={pendingConversationId !== null}
+                        disabled={pendingConversationId !== null || forkingConversationId !== null}
                         onClick={() => { void manageConversation(conversation) }}
                       >
                         {conversation.status === 'generating'

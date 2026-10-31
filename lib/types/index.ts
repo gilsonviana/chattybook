@@ -13,6 +13,8 @@ export interface Conversation {
   mode: ConversationMode
   responseLength: ResponseLength
   totalTurns: number
+  devilsAdvocate: boolean
+  forkedFromId: number | null
   status: string
   createdAt: string
   updatedAt: string
@@ -28,6 +30,7 @@ export interface ConversationSummary {
   persona1: string
   persona2: string
   responseLength: ResponseLength
+  devilsAdvocate: boolean
   createdAt: string
   updatedAt: string
   messageCount: number

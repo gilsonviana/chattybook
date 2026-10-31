@@ -239,12 +239,13 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.equal(createdSummaries[0].persona1, 'Student')
   assert.equal(createdSummaries[0].persona2, 'None')
   assert.equal(createdSummaries[0].responseLength, 'short')
+  assert.equal(createdSummaries[0].devilsAdvocate, false)
   assert.equal(createdSummaries[1].messageCount, 1)
   assert.equal(createdSummaries[1].persona1, 'Student')
   assert.equal(createdSummaries[1].persona2, 'Professor')
   assert.equal(createdSummaries[1].responseLength, 'long')
   assert.deepEqual(Object.keys(createdSummaries[0]).sort(), [
-    'createdAt', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'reviewerModel', 'status', 'subject', 'title', 'updatedAt',
+    'createdAt', 'devilsAdvocate', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'reviewerModel', 'status', 'subject', 'title', 'updatedAt',
   ])
 
   const firstDetail = await api(`/api/conversation/${first.data.id}`)
@@ -378,16 +379,18 @@ test('resuming a generating conversation fences off the abandoned reply', async 
     assert.equal(resumeResponse.status, 200)
     assert.equal((await api(`/api/conversation/${id}`)).data.status, 'active')
 
+    // The server's cancellation poll must abort the abandoned model request on its own.
+    await aborted
     releaseChat()
     const abandonedResult = await abandoned
     assert.equal(abandonedResult.status, 409)
-    await aborted
     chatBarrier = null
 
     const resumed = await api('/api/chat', { conversationId: id, expectedMessageCount: 0 })
     assert.equal(resumed.status, 200, JSON.stringify(resumed.data))
     assert.equal(resumed.data.allMessages.length, 1)
-    assert.equal((await api(`/api/conversation/${id}`)).data.status, 'completed')
+    // One turn needs a reply from each agent, so the resumed conversation stays active after Agent 1.
+    assert.equal((await api(`/api/conversation/${id}`)).data.status, 'active')
   } finally {
     releaseChat()
     chatBarrier = null
@@ -433,6 +436,67 @@ test('unsupported saved personas get no persona guidance', async () => {
   const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 0 })
   assert.equal(result.status, 200, JSON.stringify(result.data))
   assert.doesNotMatch(calls[0].messages[0].content, /minister|pastor/i)
+})
+
+test("devil's advocate mode persists and makes only Agent 1 challenge Agent 2", async () => {
+  const defaulted = await createConversation({ totalTurns: 1 })
+  assert.equal(defaulted.data.devilsAdvocate, false)
+  calls.length = 0
+  await api('/api/chat', { conversationId: defaulted.data.id, expectedMessageCount: 0 })
+  assert.doesNotMatch(calls[0].messages[0].content, /Devil's advocate/)
+
+  const created = await createConversation({ totalTurns: 2, devilsAdvocate: true })
+  assert.equal(created.status, 201)
+  assert.equal(created.data.devilsAdvocate, true)
+  calls.length = 0
+  for (let index = 0; index < 3; index++) {
+    assert.equal((await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: index })).status, 200)
+  }
+  assert.match(calls[0].messages[0].content, /Devil's advocate mode is active/)
+  assert.match(calls[0].messages[0].content, /Open with a position that challenges/)
+  assert.doesNotMatch(calls[1].messages[0].content, /Devil's advocate/)
+  assert.match(calls[2].messages[0].content, /try to refute them/)
+  assert.equal((await api(`/api/conversation/${created.data.id}`)).data.devilsAdvocate, true)
+  const summary = (await api('/api/conversation')).data.find(({ id }) => id === created.data.id)
+  assert.equal(summary.devilsAdvocate, true)
+
+  const qa = await createConversation({ totalTurns: 2, mode: 'qa', devilsAdvocate: true })
+  calls.length = 0
+  for (let index = 0; index < 3; index++) {
+    assert.equal((await api('/api/chat', { conversationId: qa.data.id, expectedMessageCount: index })).status, 200)
+  }
+  const drafts = calls.filter(call => !call.format)
+  assert.match(drafts[0].messages[0].content, /skeptical, challenging a common assumption/)
+  assert.match(drafts[2].messages[0].content, /challenging a specific claim, assumption, or piece of evidence in the latest Agent 2 answer/)
+  assert.match(drafts[2].messages[0].content, /It must still be exactly one question/)
+  assert.doesNotMatch(drafts[1].messages[0].content, /Devil's advocate/)
+
+  for (const devilsAdvocate of ['true', 1, null]) {
+    assert.equal((await createConversation({ devilsAdvocate })).status, 400, JSON.stringify(devilsAdvocate))
+  }
+})
+
+test('forks record their source, accept new settings, and survive source deletion', async () => {
+  const source = await createConversation({ totalTurns: 1, persona1: 'Student', devilsAdvocate: true })
+  assert.equal(source.data.forkedFromId, null)
+  const fork = await createConversation({ totalTurns: 3, model1: localModels[1], model2: localModels[0], forkedFromId: source.data.id })
+  assert.equal(fork.status, 201, JSON.stringify(fork.data))
+  assert.equal(fork.data.forkedFromId, source.data.id)
+  assert.equal(fork.data.model1, localModels[1])
+  assert.equal(fork.data.devilsAdvocate, false)
+  assert.equal((await api(`/api/conversation/${fork.data.id}`)).data.forkedFromId, source.data.id)
+
+  for (const forkedFromId of [0, -1, 1.5, '1']) {
+    assert.equal((await createConversation({ forkedFromId })).status, 400, JSON.stringify(forkedFromId))
+  }
+  const missing = await createConversation({ forkedFromId: 999999 })
+  assert.equal(missing.status, 404)
+  assert.match(missing.data.error, /no longer exists/)
+
+  assert.equal((await deleteConversation(source.data.id)).status, 200)
+  const orphan = await api(`/api/conversation/${fork.data.id}`)
+  assert.equal(orphan.status, 200)
+  assert.equal(orphan.data.forkedFromId, null)
 })
 
 test('Q&A mode persists and limits every Agent 1 turn to one question', async () => {

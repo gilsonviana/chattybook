@@ -19,12 +19,16 @@ model Conversation {
   mode          String      @default("discussion")
   responseLength String     @default("medium")
   totalTurns    Int
+  devilsAdvocate Boolean    @default(false)
+  forkedFromId  Int?
   status        String      @default("active")
   generationId  String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   messages Message[]      @relation()
+  forkedFrom Conversation? @relation("ConversationForks", fields: [forkedFromId], references: [id], onDelete: SetNull)
+  forks      Conversation[] @relation("ConversationForks")
 }
 
 model Message {

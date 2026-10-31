@@ -18,6 +18,7 @@ export async function GET() {
         persona1: true,
         persona2: true,
         responseLength: true,
+        devilsAdvocate: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { messages: true } },
@@ -35,7 +36,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { subject, model1, model2, reviewerModel = null, persona1 = 'None', persona2 = 'None', mode = 'discussion', responseLength = 'medium', totalTurns = 5 } = await readBody(request)
+    const { subject, model1, model2, reviewerModel = null, persona1 = 'None', persona2 = 'None', mode = 'discussion', responseLength = 'medium', totalTurns = 5, devilsAdvocate = false, forkedFromId = null } = await readBody(request)
     if (typeof subject !== 'string' || !subject.trim() ||
         typeof model1 !== 'string' || !model1.trim() ||
         typeof model2 !== 'string' || !model2.trim()) {
@@ -59,10 +60,16 @@ export async function POST(request: Request) {
     if (typeof totalTurns !== 'number' || !Number.isInteger(totalTurns) || totalTurns < 1 || totalTurns > 100) {
       throw new ApiError('Number of turns must be an integer between 1 and 100.', 400)
     }
+    if (typeof devilsAdvocate !== 'boolean') {
+      throw new ApiError("Devil's advocate mode must be true or false.", 400)
+    }
+    if (forkedFromId !== null && (typeof forkedFromId !== 'number' || !Number.isSafeInteger(forkedFromId) || forkedFromId < 1)) {
+      throw new ApiError('forkedFromId must be a conversation ID or null.', 400)
+    }
     const conversation = await initializeConversation({
       subject: subject.trim(), model1: model1.trim(), model2: model2.trim(),
       reviewerModel: typeof reviewerModel === 'string' ? reviewerModel.trim() : null,
-      persona1, persona2, mode, responseLength, totalTurns,
+      persona1, persona2, mode, responseLength, totalTurns, devilsAdvocate, forkedFromId,
     })
     return NextResponse.json(conversation, { status: 201 })
   } catch (error) {

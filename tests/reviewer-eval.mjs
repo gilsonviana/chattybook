@@ -1,5 +1,9 @@
+import { createHash } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import { parseArgs } from 'node:util'
 import { Ollama } from 'ollama'
 import { qaReviewFormat, qaReviewerSystemPrompt } from '../lib/qa-review.mjs'
+import { ruleDescriptions, ruleWeights, scoreCase, summarize } from './reviewer-eval-score.mjs'
 
 const cases = [
   {
@@ -119,6 +123,38 @@ const cases = [
     candidate: 'How do federal tax rates affect bond yields?',
     expected: { reason: 'disconnected', verdict: 'retry' },
   },
+  {
+    id: 'commentary-before-question',
+    subject: 'Urban rain gardens',
+    previousQuestions: ['Which plants suit rain gardens?'],
+    previousAnswers: ['Native sedges and rushes tolerate wet and dry periods.'],
+    candidate: 'Great point, sedges are clearly the best choice for cities. How often do they need replacing?',
+    expected: { reason: 'not_question_only', verdict: 'retry' },
+  },
+  {
+    id: 'answers-own-question',
+    subject: 'Community training programs',
+    previousQuestions: ['What training is available?'],
+    previousAnswers: ['Programs offer workshops and online courses.'],
+    candidate: 'Workshops tend to have higher completion rates than online courses, so which format do employers prefer?',
+    expected: { reason: 'not_question_only', verdict: 'retry' },
+  },
+  {
+    id: 'challenging-follow-up-on-claim',
+    subject: 'Urban rain gardens',
+    previousQuestions: ['How do rain gardens reduce flooding?'],
+    previousAnswers: ['Rain gardens hold stormwater in permeable soil, which can cut neighborhood runoff by up to 30 percent.'],
+    candidate: 'What evidence supports the claim that rain gardens cut runoff by 30 percent?',
+    expected: { reason: 'ok', verdict: 'accept' },
+  },
+  {
+    id: 'consequence-of-supplied-detail',
+    subject: 'Community training programs',
+    previousQuestions: ['What training is available?'],
+    previousAnswers: ['Programs offer evening workshops and self-paced online courses.'],
+    candidate: 'How do evening schedules affect attendance for working parents?',
+    expected: { reason: 'ok', verdict: 'accept' },
+  },
 ]
 
 function localOllamaHost() {
@@ -130,22 +166,17 @@ function localOllamaHost() {
   return url.origin
 }
 
-function parseLabel(content) {
-  try {
-    const result = JSON.parse(content)
-    if (result && ['accept', 'retry'].includes(result.verdict) &&
-        ['ok', 'disconnected', 'repetitive', 'compound', 'not_question_only'].includes(result.reason)) {
-      return { reason: result.reason, verdict: result.verdict }
-    }
-  } catch {
-    return null
-  }
-  return null
-}
-
-const model = process.argv[2]
-if (!model) {
-  console.error('Usage: npm run reviewer:eval -- <installed-local-model>')
+const { values: flags, positionals } = parseArgs({
+  allowPositionals: true,
+  options: {
+    json: { type: 'string' },
+    'min-score': { type: 'string', default: '100' },
+  },
+})
+const model = positionals[0]
+const minScore = Number(flags['min-score'])
+if (!model || !Number.isFinite(minScore) || minScore < 0 || minScore > 100) {
+  console.error('Usage: npm run reviewer:eval -- <installed-local-model> [--json report.json] [--min-score 0-100]')
   process.exit(2)
 }
 
@@ -162,9 +193,13 @@ if (('remote_model' in details && details.remote_model) ||
   process.exit(2)
 }
 
-let correct = 0
+function percent(value) {
+  return value === null ? 'n/a' : `${Math.round(value * 1000) / 10}%`
+}
+
+const results = []
 for (const testCase of cases) {
-  let actual = null
+  let raw = null
   try {
     const response = await client.chat({
       model,
@@ -182,15 +217,41 @@ for (const testCase of cases) {
       stream: false,
       options: { temperature: 0, num_predict: 256 },
     })
-    actual = parseLabel(response.message.content)
+    raw = response.message.content
   } catch (error) {
     console.error(`${testCase.id}: request failed: ${error instanceof Error ? error.message : String(error)}`)
   }
 
-  const passed = actual?.reason === testCase.expected.reason && actual?.verdict === testCase.expected.verdict
-  if (passed) correct++
-  console.log(`${passed ? 'PASS' : 'FAIL'} ${testCase.id}: expected ${testCase.expected.verdict}/${testCase.expected.reason}, got ${actual ? `${actual.verdict}/${actual.reason}` : 'invalid response'}`)
+  const { actual, rules } = scoreCase({ expected: testCase.expected, raw })
+  results.push({ id: testCase.id, expected: testCase.expected, actual, raw, rules })
+  const failed = Object.entries(rules).filter(([, passed]) => passed === false).map(([rule]) => rule)
+  console.log(`${failed.length ? 'FAIL' : 'PASS'} ${testCase.id}: expected ${testCase.expected.verdict}/${testCase.expected.reason}, got ${actual ? `${actual.verdict}/${actual.reason}` : 'invalid response'}${failed.length ? ` (failed: ${failed.join(', ')})` : ''}`)
+  if (actual?.explanation) console.log(`     explanation: ${actual.explanation}`)
 }
 
-console.log(`\n${model}: ${correct}/${cases.length} correct; ${cases.length - correct} mismatches (${cases.length / 2} accept, ${cases.length / 2} retry cases).`)
-if (correct !== cases.length) process.exitCode = 1
+const summary = summarize(results)
+const acceptCases = cases.filter(testCase => testCase.expected.verdict === 'accept').length
+console.log(`\n${model}: score ${summary.score}/100 over ${cases.length} cases (${acceptCases} accept, ${cases.length - acceptCases} retry).`)
+console.log('\nRules (weight, pass rate):')
+for (const [rule, weight] of Object.entries(ruleWeights)) {
+  const { passed, total, rate } = summary.rules[rule]
+  console.log(`  ${rule.padEnd(12)} ${String(weight).padStart(3)}  ${percent(rate).padStart(6)}  (${passed}/${total})  ${ruleDescriptions[rule]}`)
+}
+console.log(`\nQuality warning: precision ${percent(summary.warning.precision)}, recall ${percent(summary.warning.recall)}, F1 ${percent(summary.warning.f1)} (${summary.warning.falsePositives} false warnings, ${summary.warning.falseNegatives} missed warnings).`)
+console.log('Reason accuracy by expected label:')
+for (const [reason, { passed, total, rate }] of Object.entries(summary.reasons)) {
+  console.log(`  ${reason.padEnd(18)} ${percent(rate).padStart(6)}  (${passed}/${total})`)
+}
+
+if (flags.json) {
+  await writeFile(flags.json, `${JSON.stringify({
+    model,
+    createdAt: new Date().toISOString(),
+    // Lets saved reports be compared across prompt revisions.
+    promptSha256: createHash('sha256').update(qaReviewerSystemPrompt).digest('hex'),
+    ...summary,
+    cases: results,
+  }, null, 2)}\n`)
+  console.log(`\nReport written to ${flags.json}.`)
+}
+if (summary.score < minScore) process.exitCode = 1
