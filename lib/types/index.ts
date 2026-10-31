@@ -5,6 +5,7 @@ import type { ResponseLength } from '../response-length'
 export interface Conversation {
   id: number
   subject: string
+  title: string | null
   model1: string
   model2: string
   reviewerModel: string | null
@@ -22,6 +23,7 @@ export interface Conversation {
 export interface ConversationSummary {
   id: number
   subject: string
+  title: string | null
   status: string
   persona1: Persona
   persona2: Persona

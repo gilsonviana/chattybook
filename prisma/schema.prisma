@@ -10,6 +10,7 @@ datasource db {
 model Conversation {
   id            Int         @id @default(autoincrement())
   subject       String
+  title         String?
   model1        String
   model2        String
   reviewerModel String?

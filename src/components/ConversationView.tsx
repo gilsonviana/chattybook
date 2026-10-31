@@ -127,7 +127,7 @@ export function ConversationView({ id }: { id: string }) {
       {conversation && (
         <>
           <ChatWindow
-            subject={conversation.subject}
+            title={conversation.title ?? conversation.subject}
             messages={messages}
             isLoading={isLoading}
             totalTurns={conversation.totalTurns}

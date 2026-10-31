@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AgentSelector } from '@/components/AgentSelector'
 import { getOllamaModels, requestJson } from '../../lib/client'
 import { isConversationMode, type ConversationMode } from '../../lib/conversation-mode'
@@ -10,6 +10,12 @@ import { isPersona, type Persona } from '../../lib/personas'
 import { isResponseLength, type ResponseLength } from '../../lib/response-length'
 import type { Conversation, ConversationSummary } from '../../lib/types'
 import type { OllamaHealth } from '../../lib/ollama'
+
+const MAX_TITLE_LENGTH = 120
+
+function displayTitle(conversation: Pick<ConversationSummary, 'subject' | 'title'>) {
+  return conversation.title ?? conversation.subject
+}
 
 export default function Home() {
   const router = useRouter()
@@ -19,6 +25,11 @@ export default function Home() {
   const [historyError, setHistoryError] = useState('')
   const [actionError, setActionError] = useState('')
   const [pendingConversationId, setPendingConversationId] = useState<number | null>(null)
+  const [renameTarget, setRenameTarget] = useState<ConversationSummary | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [isSavingRename, setIsSavingRename] = useState(false)
+  const renameDialog = useRef<HTMLDialogElement>(null)
+  const renameInput = useRef<HTMLInputElement>(null)
   const [health, setHealth] = useState<OllamaHealth | null>(null)
   const [checking, setChecking] = useState(true)
   const [models, setModels] = useState<string[]>([])
@@ -93,6 +104,14 @@ export default function Home() {
     return () => { mounted = false }
   }, [])
 
+  useEffect(() => {
+    if (!renameTarget) return
+    const dialog = renameDialog.current
+    if (dialog && !dialog.open) dialog.showModal()
+    renameInput.current?.focus()
+    renameInput.current?.select()
+  }, [renameTarget])
+
   async function startConversation() {
     if (!subject.trim() || !model1 || !model2 || !validTurns || !health?.running) return
     setIsLoading(true)
@@ -115,7 +134,7 @@ export default function Home() {
   async function manageConversation(conversation: ConversationSummary) {
     if (pendingConversationId !== null) return
     const cancelling = conversation.status === 'generating'
-    if (!cancelling && !window.confirm(`Delete "${conversation.subject}" and all its messages? This cannot be undone.`)) return
+    if (!cancelling && !window.confirm(`Delete "${displayTitle(conversation)}" and all its messages? This cannot be undone.`)) return
 
     setActionError('')
     setPendingConversationId(conversation.id)
@@ -128,6 +147,36 @@ export default function Home() {
       setActionError(error instanceof Error ? error.message : `Could not ${cancelling ? 'cancel' : 'delete'} the conversation.`)
     } finally {
       setPendingConversationId(null)
+    }
+  }
+
+  function openRename(conversation: ConversationSummary, trigger: HTMLButtonElement) {
+    if (conversation.status !== 'completed' || pendingConversationId !== null) return
+    trigger.closest('details')?.removeAttribute('open')
+    setActionError('')
+    setRenameTarget(conversation)
+    setRenameValue(displayTitle(conversation))
+  }
+
+  async function saveRename() {
+    const conversation = renameTarget
+    const title = renameValue.trim()
+    if (!conversation || !title || title.length > MAX_TITLE_LENGTH || isSavingRename) return
+
+    setIsSavingRename(true)
+    setActionError('')
+    try {
+      await requestJson<{ success: boolean; title: string }>(`/api/conversation/${conversation.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      })
+      setHistory(current => current.map(item => item.id === conversation.id ? { ...item, title } : item))
+      renameDialog.current?.close()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not rename the conversation.')
+    } finally {
+      setIsSavingRename(false)
     }
   }
 
@@ -217,7 +266,7 @@ export default function Home() {
               {history.map(conversation => (
                 <li className="history-item" key={conversation.id}>
                   <Link href={`/conversation/${conversation.id}`}>
-                    <span className="history-subject">{conversation.subject}</span>
+                    <span className="history-subject">{displayTitle(conversation)}</span>
                     <span className="history-meta">
                       {[
                         ...(conversation.status === 'generating' ? ['Generating'] : []),
@@ -227,17 +276,29 @@ export default function Home() {
                     </span>
                   </Link>
                   <details className="history-menu">
-                    <summary aria-label={`Actions for ${conversation.subject}`} title="Conversation actions">⋮</summary>
-                    <button
-                      type="button"
-                      className="history-menu-delete"
-                      disabled={pendingConversationId !== null}
-                      onClick={() => { void manageConversation(conversation) }}
-                    >
-                      {conversation.status === 'generating'
-                        ? pendingConversationId === conversation.id ? 'Cancelling...' : 'Cancel'
-                        : pendingConversationId === conversation.id ? 'Deleting...' : 'Delete'}
-                    </button>
+                    <summary aria-label={`Actions for ${displayTitle(conversation)}`} title="Conversation actions">⋮</summary>
+                    <div className="history-menu-actions">
+                      {conversation.status === 'completed' && (
+                        <button
+                          type="button"
+                          className="history-menu-action"
+                          disabled={pendingConversationId !== null}
+                          onClick={event => openRename(conversation, event.currentTarget)}
+                        >
+                          Rename
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="history-menu-action history-menu-delete"
+                        disabled={pendingConversationId !== null}
+                        onClick={() => { void manageConversation(conversation) }}
+                      >
+                        {conversation.status === 'generating'
+                          ? pendingConversationId === conversation.id ? 'Cancelling...' : 'Cancel'
+                          : pendingConversationId === conversation.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
                   </details>
                 </li>
               ))}
@@ -245,6 +306,37 @@ export default function Home() {
           )}
         </aside>
       </div>
+      {renameTarget && (
+        <dialog
+          className="rename-dialog"
+          ref={renameDialog}
+          aria-labelledby="rename-dialog-title"
+          onCancel={event => { if (isSavingRename) event.preventDefault() }}
+          onClose={() => setRenameTarget(null)}
+        >
+          <form onSubmit={event => { event.preventDefault(); void saveRename() }}>
+            <h2 id="rename-dialog-title">Rename conversation</h2>
+            {actionError && <p className="error" role="alert">{actionError}</p>}
+            <label htmlFor="rename-conversation-title">Conversation title</label>
+            <input
+              id="rename-conversation-title"
+              ref={renameInput}
+              type="text"
+              value={renameValue}
+              maxLength={MAX_TITLE_LENGTH}
+              autoComplete="off"
+              disabled={isSavingRename}
+              onChange={event => setRenameValue(event.target.value)}
+            />
+            <div className="rename-dialog-actions">
+              <button type="button" className="secondary" disabled={isSavingRename} onClick={() => renameDialog.current?.close()}>Cancel</button>
+              <button type="submit" disabled={isSavingRename || !renameValue.trim() || renameValue.trim().length > MAX_TITLE_LENGTH}>
+                {isSavingRename ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </dialog>
+      )}
     </main>
   )
 }

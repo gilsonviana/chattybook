@@ -91,12 +91,18 @@ compound requests but does not guarantee relevance or factual accuracy.
    or `null` (the default, using Agent 1's model). Review has a separate 256-token
    ceiling. Existing conversations use the same default without rewriting history.
 - `GET /api/conversation`: returns newest-first conversation summaries with IDs,
-  subjects, status, timestamps, and message counts.
+   subjects, nullable display titles, status, timestamps, and message counts. When
+   a title is `null`, the UI displays the subject.
+- `PATCH /api/conversation/:id`: `{ title }` renames a completed conversation.
+   Titles are trimmed and must contain 1 to 120 characters. The original subject
+   remains unchanged. A bodyless PATCH retains the existing generation-cancellation
+   behavior.
 - `POST /api/chat`: `{ conversationId, expectedMessageCount }`. Generates and saves
   exactly one response. The server chooses the next agent, constructs history from
   that agent's perspective, and marks the conversation complete after both agents
   have responded for every turn. Concurrent, stale, or completed requests get 409.
-- `GET /api/conversation/:id`: retrieves the saved conversation and ordered messages.
+- `GET /api/conversation/:id`: retrieves the saved conversation, nullable display
+   title, and ordered messages.
    Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`
    when review does not apply or the message predates review support.
    Nullable `reviewReason` is `ok`, `disconnected`, `repetitive`, `compound`, or

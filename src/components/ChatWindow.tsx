@@ -14,7 +14,7 @@ const reviewReasonLabels: Partial<Record<NonNullable<Message['reviewReason']>, s
 }
 
 interface ChatWindowProps {
-  subject: string
+  title: string
   messages: Message[]
   isLoading: boolean
   totalTurns: number
@@ -24,7 +24,7 @@ interface ChatWindowProps {
   model2: string
 }
 
-export function ChatWindow({ subject, messages, isLoading, totalTurns, persona1, persona2, model1, model2 }: ChatWindowProps) {
+export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, persona2, model1, model2 }: ChatWindowProps) {
   const end = useRef<HTMLDivElement>(null)
   const completedTurns = Math.floor(messages.length / 2)
   const progress = totalTurns > 0 ? Math.floor(completedTurns / totalTurns * 100) : 0
@@ -35,7 +35,7 @@ export function ChatWindow({ subject, messages, isLoading, totalTurns, persona1,
   return (
     <section className="panel chat-window" aria-label="Agent dialogue" role="log" aria-live="polite">
       <header className="chat-header">
-        <h2>{subject}</h2>
+        <h2>{title}</h2>
         <p>{progress}%</p>
       </header>
       {messages.length === 0 && <p className="muted conversation-empty">The agents&apos; responses will appear here.</p>}

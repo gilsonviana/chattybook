@@ -39,6 +39,17 @@ async function deleteConversation(id) {
   return { status: response.status, data: await response.json() }
 }
 
+async function renameConversation(id, body) {
+  const response = await fetch(`${base}/api/conversation/${id}`, body === undefined ? {
+    method: 'PATCH',
+  } : {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return { status: response.status, data: await response.json() }
+}
+
 async function createConversation(extra = {}) {
   return api('/api/conversation', {
     subject: 'How can cities support urban gardens?',
@@ -223,6 +234,7 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.deepEqual(createdSummaries.map(({ id }) => id), [second.data.id, first.data.id])
   assert.equal(createdSummaries[0].subject, 'How do libraries shape communities?')
   assert.equal(createdSummaries[0].messageCount, 0)
+  assert.equal(createdSummaries[0].title, null)
   assert.equal(createdSummaries[0].persona1, 'Student')
   assert.equal(createdSummaries[0].persona2, 'None')
   assert.equal(createdSummaries[0].responseLength, 'short')
@@ -231,14 +243,49 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.equal(createdSummaries[1].persona2, 'Professor')
   assert.equal(createdSummaries[1].responseLength, 'long')
   assert.deepEqual(Object.keys(createdSummaries[0]).sort(), [
-    'createdAt', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'status', 'subject', 'updatedAt',
+    'createdAt', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'status', 'subject', 'title', 'updatedAt',
   ])
 
   const firstDetail = await api(`/api/conversation/${first.data.id}`)
   const secondDetail = await api(`/api/conversation/${second.data.id}`)
   assert.equal(firstDetail.data.messages.length, 1)
   assert.equal(secondDetail.data.subject, 'How do libraries shape communities?')
+  assert.equal(secondDetail.data.title, null)
   assert.deepEqual(secondDetail.data.messages, [])
+})
+
+test('renaming a completed conversation persists its display title without changing its subject', async () => {
+  const created = await createConversation({ totalTurns: 1 })
+  const id = created.data.id
+  assert.equal((await api('/api/chat', { conversationId: id, expectedMessageCount: 0 })).status, 200)
+  assert.equal((await api('/api/chat', { conversationId: id, expectedMessageCount: 1 })).status, 200)
+
+  assert.deepEqual(await renameConversation(id, { title: '  Urban garden planning  ' }), {
+    status: 200,
+    data: { success: true, title: 'Urban garden planning' },
+  })
+  const detail = await api(`/api/conversation/${id}`)
+  assert.equal(detail.data.subject, 'How can cities support urban gardens?')
+  assert.equal(detail.data.title, 'Urban garden planning')
+  const history = await fetch(`${base}/api/conversation`)
+  const summary = (await history.json()).find(conversation => conversation.id === id)
+  assert.equal(summary.subject, 'How can cities support urban gardens?')
+  assert.equal(summary.title, 'Urban garden planning')
+})
+
+test('renaming validates title shape, length, IDs, and missing conversations', async () => {
+  const created = await createConversation({ totalTurns: 1 })
+  for (const body of [null, {}, { title: '' }, { title: '   ' }, { title: 12 }, { title: 'x'.repeat(121) }]) {
+    assert.equal((await renameConversation(created.data.id, body)).status, 400, JSON.stringify(body))
+  }
+  const malformed = await fetch(`${base}/api/conversation/${created.data.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{',
+  })
+  assert.equal(malformed.status, 400)
+  assert.equal((await renameConversation('invalid', { title: 'A title' })).status, 400)
+  assert.equal((await renameConversation(999999, { title: 'A title' })).status, 404)
 })
 
 test('deleting a conversation cascades messages and removes it from history', async () => {
@@ -265,6 +312,7 @@ test('deleting a generating conversation returns a conflict', async () => {
 
   const generation = api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 0 })
   await started
+  const rename = await renameConversation(created.data.id, { title: 'Not finished yet' })
   const deletion = await deleteConversation(created.data.id)
   releaseChat()
   const generated = await generation
@@ -272,6 +320,8 @@ test('deleting a generating conversation returns a conflict', async () => {
 
   assert.equal(deletion.status, 409)
   assert.match(deletion.data.error, /being generated/)
+  assert.equal(rename.status, 409)
+  assert.match(rename.data.error, /until it is completed/)
   assert.equal(generated.status, 200)
 })
 
