@@ -11,7 +11,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     }
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
-      include: { messages: { orderBy: { id: 'asc' } } },
+      include: {
+        messages: { orderBy: { id: 'asc' } },
+        forks: { select: { id: true, subject: true, title: true, status: true, createdAt: true }, orderBy: { id: 'asc' } },
+      },
     })
     if (!conversation) throw new ApiError('Conversation not found.', 404)
     return NextResponse.json(conversation)

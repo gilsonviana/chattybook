@@ -93,6 +93,14 @@ h1, h2, h3, p { margin: 0; }
 .fork-summary { margin-inline: 24px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; font-size: .9rem; }
 .fork-summary summary { cursor: pointer; color: var(--muted); font-weight: 600; }
 .fork-summary p { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fork-continuation { padding: 20px 24px; }
+.fork-continuation h2 { font-size: 1.1rem; }
+.fork-continuation p { margin: 4px 0 14px; }
+.fork-continuation ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.fork-continuation a { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 9px; background: #315cd5; color: white; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.fork-continuation a::after { content: "→"; flex: 0 0 auto; }
+.fork-continuation a:hover { background: #2347ae; }
+.fork-continuation-meta { margin-left: auto; font-size: .8rem; font-weight: 400; opacity: .85; white-space: nowrap; }
 .chat-window { display: flex; flex-direction: column; gap: 20px; padding-bottom: 24px; }
 .message { width: fit-content; max-width: min(82%, 720px); margin: 0 auto 0 24px; padding: 14px 18px; border: 1px solid #d5e0f0; border-radius: 18px 18px 18px 5px; background: #eaf1ff; color: #183664; box-shadow: 0 2px 8px #1836640d; }
 .message.agent2 { align-self: flex-end; margin-inline: auto 24px; border-color: #dfd1ef; border-radius: 18px 18px 5px 18px; background: #f2eaff; color: #4a2d70; }
@@ -137,7 +145,7 @@ h1, h2, h3, p { margin: 0; }
   :root { color-scheme: light; --background: #fff; --surface: #fff; --text: #17243b; --muted: #52647e; --border: #d3ddeb; }
   * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .app { max-width: none; padding: 0; }
-  .page-header, .conversation-nav, .actions, .error, .thinking, .message .message-copy { display: none; }
+  .page-header, .conversation-nav, .actions, .fork-continuation, .error, .thinking, .message .message-copy { display: none; }
   .panel { border: 0; box-shadow: none; }
   .chat-window { gap: 12px; }
   .chat-title a { color: inherit; }

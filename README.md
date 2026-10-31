@@ -70,7 +70,9 @@ request contains the whole transcript). Both agents receive these key points wit
 an instruction not to repeat them; they appear under **Key points carried over**
 on the conversation page. The new conversation starts without messages and links
 back to its source; the link is removed if the source is deleted, but the summary
-is kept. Forking an empty conversation skips the summary. If summarization fails,
+is kept. The original conversation's header shows how many times it was forked,
+and a **Continue reading** section at the bottom links to each fork. Forking an
+empty conversation skips the summary. If summarization fails,
 no conversation is created. Forking requires the source's models to be installed
 locally.
 **Export to PDF** on the conversation page opens the browser's print dialog with a
@@ -134,8 +136,9 @@ compound requests but does not guarantee relevance or factual accuracy.
   that agent's perspective, and marks the conversation complete after both agents
   have responded for every turn. Concurrent, stale, or completed requests get 409.
 - `GET /api/conversation/:id`: retrieves the saved conversation, nullable display
-   title, `devilsAdvocate`, nullable `forkedFromId`, nullable `forkSummary`, and
-   ordered messages.
+   title, `devilsAdvocate`, nullable `forkedFromId`, nullable `forkSummary`,
+   `forks` (`{ id, subject, title, status, createdAt }` for each conversation
+   forked from it, oldest first), and ordered messages.
    Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`
    when review does not apply or the message predates review support.
    Nullable `reviewReason` is `ok`, `disconnected`, `repetitive`, `compound`, or

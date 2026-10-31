@@ -16,11 +16,14 @@ export interface Conversation {
   devilsAdvocate: boolean
   forkedFromId: number | null
   forkSummary: string | null
+  forks: ConversationFork[]
   status: string
   createdAt: string
   updatedAt: string
   messages: Message[]
 }
+
+export type ConversationFork = Pick<Conversation, 'id' | 'subject' | 'title' | 'status' | 'createdAt'>
 
 export interface ConversationSummary {
   id: number

@@ -172,6 +172,7 @@ export function ConversationView({ id }: { id: string }) {
             devilsAdvocate={conversation.devilsAdvocate}
             forkedFromId={conversation.forkedFromId}
             forkSummary={conversation.forkSummary}
+            forkCount={conversation.forks.length}
           />
           {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
             <div className="actions">
@@ -188,6 +189,26 @@ export function ConversationView({ id }: { id: string }) {
             <div className="actions">
               <button onClick={() => void retryConversation()}>Retry / continue dialogue</button>
             </div>
+          )}
+          {conversation.forks.length > 0 && (
+            <nav id="conversation-forks" className="fork-continuation panel" aria-labelledby="fork-continuation-heading">
+              <h2 id="fork-continuation-heading">Continue reading</h2>
+              <p className="muted">
+                This dialogue was forked into {conversation.forks.length === 1 ? 'another conversation' : `${conversation.forks.length} conversations`} that continue the subject without repeating its key points.
+              </p>
+              <ul>
+                {conversation.forks.map(fork => (
+                  <li key={fork.id}>
+                    <Link href={`/conversation/${fork.id}`}>
+                      <span>{fork.title ?? fork.subject}</span>
+                      <span className="fork-continuation-meta">
+                        {new Date(fork.createdAt).toLocaleDateString()}{fork.status === 'completed' ? '' : ' · In progress'}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
           )}
         </>
       )}

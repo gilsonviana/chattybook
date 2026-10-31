@@ -27,9 +27,10 @@ interface ChatWindowProps {
   devilsAdvocate: boolean
   forkedFromId: number | null
   forkSummary: string | null
+  forkCount: number
 }
 
-export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTurns, persona1, persona2, model1, model2, devilsAdvocate, forkedFromId, forkSummary }: ChatWindowProps) {
+export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTurns, persona1, persona2, model1, model2, devilsAdvocate, forkedFromId, forkSummary, forkCount }: ChatWindowProps) {
   const end = useRef<HTMLDivElement>(null)
   const [copyStatus, setCopyStatus] = useState<{ messageId: number; status: 'copied' | 'error' } | null>(null)
   const completedTurns = Math.floor(messages.length / 2)
@@ -56,6 +57,7 @@ export function ChatWindow({ title, reviewerModel, messages, isLoading, totalTur
           {reviewerModel && <p className="reviewer-model">Reviewer: {reviewerModel}</p>}
           {devilsAdvocate && <p className="reviewer-model">Devil&apos;s advocate: Agent 1 challenges Agent 2</p>}
           {forkedFromId !== null && <p className="reviewer-model">Forked from <Link href={`/conversation/${forkedFromId}`}>conversation #{forkedFromId}</Link></p>}
+          {forkCount > 0 && <p className="reviewer-model"><a href="#conversation-forks">Forked into {forkCount === 1 ? '1 conversation' : `${forkCount} conversations`}</a></p>}
         </div>
         <p className="chat-progress">{progress}%</p>
       </header>

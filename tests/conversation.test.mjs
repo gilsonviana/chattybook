@@ -485,6 +485,13 @@ test('forks record their source, accept new settings, and survive source deletio
   assert.equal(fork.data.model1, localModels[1])
   assert.equal(fork.data.devilsAdvocate, false)
   assert.equal((await api(`/api/conversation/${fork.data.id}`)).data.forkedFromId, source.data.id)
+  const secondFork = await createConversation({ totalTurns: 1, forkedFromId: source.data.id })
+  const sourceDetail = await api(`/api/conversation/${source.data.id}`)
+  assert.deepEqual(sourceDetail.data.forks.map(({ id }) => id), [fork.data.id, secondFork.data.id])
+  assert.deepEqual(Object.keys(sourceDetail.data.forks[0]).sort(), ['createdAt', 'id', 'status', 'subject', 'title'])
+  assert.deepEqual((await api(`/api/conversation/${fork.data.id}`)).data.forks, [])
+  assert.equal((await deleteConversation(secondFork.data.id)).status, 200)
+  assert.deepEqual((await api(`/api/conversation/${source.data.id}`)).data.forks.map(({ id }) => id), [fork.data.id])
 
   for (const forkedFromId of [0, -1, 1.5, '1']) {
     assert.equal((await createConversation({ forkedFromId })).status, 400, JSON.stringify(forkedFromId))
