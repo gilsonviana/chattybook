@@ -133,6 +133,8 @@ export function ConversationView({ id }: { id: string }) {
             totalTurns={conversation.totalTurns}
             persona1={conversation.persona1}
             persona2={conversation.persona2}
+            model1={conversation.model1}
+            model2={conversation.model2}
           />
           {(isStopping || ((isLoading || conversation.status === 'generating') && conversation.status !== 'completed')) && (
             <div className="actions">

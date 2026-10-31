@@ -11,9 +11,11 @@ interface ChatWindowProps {
   totalTurns: number
   persona1: Persona
   persona2: Persona
+  model1: string
+  model2: string
 }
 
-export function ChatWindow({ subject, messages, isLoading, totalTurns, persona1, persona2 }: ChatWindowProps) {
+export function ChatWindow({ subject, messages, isLoading, totalTurns, persona1, persona2, model1, model2 }: ChatWindowProps) {
   const end = useRef<HTMLDivElement>(null)
   const completedTurns = Math.floor(messages.length / 2)
   const progress = totalTurns > 0 ? Math.floor(completedTurns / totalTurns * 100) : 0
@@ -30,7 +32,7 @@ export function ChatWindow({ subject, messages, isLoading, totalTurns, persona1,
       {messages.length === 0 && <p className="muted conversation-empty">The agents&apos; responses will appear here.</p>}
       {messages.map(message => (
         <article key={message.id} className={`message ${message.speaker}`}>
-          <h3>Agent {message.speaker === 'agent1' ? '1' : '2'} ({message.speaker === 'agent1' ? persona1 : persona2}) <span>Turn {message.turnNumber}</span></h3>
+          <h3>Agent {message.speaker === 'agent1' ? '1' : '2'} ({message.speaker === 'agent1' ? persona1 : persona2}) - {message.speaker === 'agent1' ? model1 : model2} <span>Turn {message.turnNumber}</span></h3>
           <p>{message.content}</p>
         </article>
       ))}

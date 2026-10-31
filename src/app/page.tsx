@@ -28,7 +28,7 @@ export default function Home() {
   const [model2, setModel2] = useState('')
   const [persona1, setPersona1] = useState<Persona>('None')
   const [persona2, setPersona2] = useState<Persona>('None')
-  const [mode, setMode] = useState<ConversationMode>('discussion')
+  const [mode, setMode] = useState<ConversationMode>('qa')
   const [responseLength, setResponseLength] = useState<ResponseLength>('medium')
 
   const refreshOllama = useCallback(() => {
