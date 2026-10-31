@@ -6,7 +6,7 @@ import type { Message } from '../../lib/types'
 
 const reviewReasonLabels: Partial<Record<NonNullable<Message['reviewReason']>, string>> = {
   disconnected: 'It does not meaningfully build on the latest answer.',
-  repetitive: 'It requests information already supplied in an earlier answer.',
+  repetitive: 'It repeats an earlier question or requests information already supplied.',
   compound: 'It contains multiple independently answerable requests.',
   not_question_only: 'It includes content beyond one focused question.',
   reviewer_error: 'The reviewer failed to return a valid result.',

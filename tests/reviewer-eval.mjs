@@ -88,6 +88,22 @@ const cases = [
     expected: { reason: 'repetitive', verdict: 'retry' },
   },
   {
+    id: 'same-topic-as-earlier-question-different-request',
+    subject: 'Urban rain gardens',
+    previousQuestions: ['How do rain gardens reduce flooding?', 'Which plants suit rain gardens?'],
+    previousAnswers: ['Rain gardens hold stormwater in permeable soil.', 'Native sedges and rushes tolerate wet and dry periods.'],
+    candidate: 'How often do those sedges need replacing in a city rain garden?',
+    expected: { reason: 'ok', verdict: 'accept' },
+  },
+  {
+    id: 'restates-unanswered-earlier-question',
+    subject: 'Urban rain gardens',
+    previousQuestions: ['How do rain gardens reduce flooding?', 'Which plants suit rain gardens?'],
+    previousAnswers: ['Rain gardens are popular in many cities.', 'Native sedges and rushes tolerate wet and dry periods.'],
+    candidate: 'In what ways do rain gardens help cities prevent floods?',
+    expected: { reason: 'repetitive', verdict: 'retry' },
+  },
+  {
     id: 'compound-requests',
     subject: 'Community training programs',
     previousQuestions: ['What training is available?'],

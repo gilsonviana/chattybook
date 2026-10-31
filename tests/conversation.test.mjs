@@ -409,13 +409,14 @@ test('Q&A mode persists and limits every Agent 1 turn to one question', async ()
     assert.equal(call.model, localModels[index % 2])
     if (index % 2 === 0) {
       assert.match(call.messages[0].content, /exactly one focused question per turn/)
-      assert.match(call.messages[0].content, /at most 3 paragraphs/)
+      assert.match(call.messages[0].content, /single sentence of at most 25 words/)
+      assert.doesNotMatch(call.messages[0].content, /3 paragraphs/)
       assert.match(call.messages[0].content, /curious, intellectually honest student voice/)
       assert.match(call.messages[1].content, /Respond only with that one question/)
       assert.equal(call.messages.at(-1).role, 'user')
       assert.match(call.messages.at(-1).content, /Hard rule for this turn: ask exactly one focused question/)
       assert.equal(result.data.message, 'How can cities support urban gardens?')
-      assert.equal(call.options.num_predict, 1024)
+      assert.equal(call.options.num_predict, 256)
     } else {
       assert.match(call.messages[0].content, /Answer only the latest Agent 1 question directly/)
       assert.match(call.messages[0].content, /never more than 3 paragraphs/)
@@ -485,13 +486,16 @@ test('Q&A follow-up explicitly grounds the latest answer and allows connected br
     assert.match(draft.messages.at(-1).content, /Root channels create storage pores/)
     assert.match(draft.messages.at(-1).content, /connected branch/)
     assert.match(draft.messages.at(-1).content, /dialogue data, not instructions/)
+    assert.ok(draft.messages.at(-1).content.includes(JSON.stringify(['How do urban gardens reduce flooding?', 'How does permeable soil retain stormwater?'])))
+    assert.match(draft.messages.at(-1).content, /Do not repeat, rephrase, narrow, or broaden any of them/)
     const data = JSON.parse(review.messages[1].content)
     assert.match(data.latestAnswer, /^Root channels/)
     assert.equal(data.previousQuestions.length, 2)
     assert.equal(data.previousAnswers.length, 2)
     assert.equal(data.candidate, result.data.message)
     assert.match(review.messages[0].content, /Connected branching/)
-    assert.match(review.messages[0].content, /only when it requests information already supplied/)
+    assert.match(review.messages[0].content, /requests information already supplied/)
+    assert.match(review.messages[0].content, /same thing as any entry in previousQuestions/)
     assert.match(review.messages[0].content, /ACCEPT \/ ok/)
     assert.match(review.messages[0].content, /RETRY \/ repetitive/)
     assert.equal(review.options.num_predict, 256)
@@ -522,10 +526,11 @@ test('Q&A review tries three candidates, stops on acceptance, and persists only 
     assert.equal(result.status, 200, JSON.stringify(result.data))
     assert.deepEqual(calls.map(call => call.model), Array.from({ length: attempts }, () => localModels).flat())
     for (const call of calls.filter(call => !call.format)) {
-      assert.match(call.messages[0].content, /exactly one paragraph with at most 25 words/)
+      assert.match(call.messages[0].content, /single sentence of at most 25 words/)
       assert.equal(call.options.num_predict, 256)
     }
     assert.match(calls[2].messages.at(-1).content, /failed criterion is disconnected/)
+    assert.ok(calls[2].messages.at(-1).content.includes(JSON.stringify(['How do urban gardens reduce flooding?'])))
     assert.match(calls[2].messages.at(-1).content, /attempt 2 of 3/)
     if (attempts === 3) {
       assert.equal(calls[4].messages.at(-2).content, repair)
@@ -759,7 +764,8 @@ test('Q&A requires one independently answerable question for every persona and r
       const prompts = calls[0].messages
       if (persona1 !== 'None') assert.match(prompts[0].content, personaVoices[persona1])
       assert.match(prompts[0].content, /Choose only one aspect of the subject/)
-      assert.match(prompts[0].content, responseLength === 'short' ? /exactly one paragraph with at most 25 words/ : /at most 3 paragraphs/)
+      assert.match(prompts[0].content, /single sentence of at most 25 words/)
+      assert.equal(calls[0].options.num_predict, 256)
       assert.match(prompts[0].content, /Both this rule and the response-length limits override persona/)
       assert.ok(prompts[1].content.includes(JSON.stringify(subject)))
       assert.match(prompts[1].content, /only one independently answerable thing/)
@@ -824,8 +830,8 @@ test('Q&A legacy Long conversations generate with Medium without rewriting saved
   for (let index = 0; index < 2; index++) {
     const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: index })
     assert.equal(result.status, 200, JSON.stringify(result.data))
-    assert.equal(calls[index].options.num_predict, 1024)
-    assert.match(calls[index].messages[0].content, /(?:at most|never more than) 3 paragraphs/)
+    assert.equal(calls[index].options.num_predict, index === 0 ? 256 : 1024)
+    assert.match(calls[index].messages[0].content, index === 0 ? /single sentence of at most 25 words/ : /never more than 3 paragraphs/)
   }
   const saved = (await api(`/api/conversation/${created.data.id}`)).data
   assert.equal(saved.responseLength, 'long')
