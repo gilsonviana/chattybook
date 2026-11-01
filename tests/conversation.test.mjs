@@ -539,7 +539,8 @@ test("forks summarize the source with Agent 1's new model and steer both agents 
   assert.equal(calls.length, 1)
   assert.equal(calls[0].model, localModels[1])
   assert.equal(calls[0].options.num_predict, 512)
-  assert.match(calls[0].messages[0].content, /at most 10 concise key points/)
+  assert.match(calls[0].messages[0].content, /at most 10 short topic labels/)
+  assert.match(calls[0].messages[0].content, /Do not write full sentences/)
   assert.match(calls[0].messages[1].content, /Agent 1 \(Student\): /)
   for (const message of sourceMessages) assert.ok(calls[0].messages[1].content.includes(JSON.stringify(message.content).slice(1, -1)))
   assert.equal((await api(`/api/conversation/${fork.data.id}`)).data.forkSummary, fork.data.forkSummary)
@@ -551,8 +552,17 @@ test("forks summarize the source with Agent 1's new model and steer both agents 
   for (const call of calls) {
     assert.match(call.messages[0].content, /fork of an earlier dialogue/)
     assert.match(call.messages[0].content, /Zoning limits rooftop plots/)
-    assert.match(call.messages[0].content, /Do not repeat these points/)
+    assert.match(call.messages[0].content, /cover only aspects they did not/)
   }
+
+  await database.conversationTopic.createMany({
+    data: [0, 1].map(position => ({ conversationId: fork.data.id, position, title: `Fork topic ${position + 1}`, description: 'Planned focus.' })),
+  })
+  await database.conversation.update({ where: { id: fork.data.id }, data: { status: 'active', totalTurns: 2 } })
+  calls.length = 0
+  assert.equal((await api('/api/chat', { conversationId: fork.data.id, expectedMessageCount: 2 })).status, 200)
+  const system = calls[0].messages[0].content
+  assert.ok(system.indexOf('Fork topic 2') < system.indexOf('fork of an earlier dialogue'), 'the fork rule follows the topic plan')
 
   const long = await createConversation({ totalTurns: 3 })
   for (let index = 0; index < 4; index++) {
@@ -657,7 +667,7 @@ test('summaries default to Agent 1, persist, regenerate with a chosen model, and
   chatReplies = []
 })
 
-test('forks reuse a saved source summary without generating another summary', async () => {
+test('forks generate their own topic labels even when the source has a saved summary', async () => {
   const source = await createConversation({ totalTurns: 1 })
   for (let index = 0; index < 2; index++) {
     assert.equal((await api('/api/chat', { conversationId: source.data.id, expectedMessageCount: index })).status, 200)
@@ -669,11 +679,13 @@ test('forks reuse a saved source summary without generating another summary', as
   assert.equal(summary.status, 200, JSON.stringify(summary.data))
 
   calls.length = 0
-  chatReplies = []
+  chatReplies = [{ content: '- Water access' }]
   const fork = await createConversation({ totalTurns: 1, forkedFromId: source.data.id })
   assert.equal(fork.status, 201, JSON.stringify(fork.data))
-  assert.equal(fork.data.forkSummary, summary.data.summary)
-  assert.equal(calls.length, 0)
+  assert.equal(fork.data.forkSummary, '- Water access')
+  assert.equal(calls.length, 1)
+  assert.match(calls[0].messages[0].content, /short topic labels/)
+  chatReplies = []
 })
 
 test('summaries fold long stopped dialogues and exclude inherited fork context', async () => {
@@ -1417,6 +1429,7 @@ test('fork plans steer away from inherited key points and confirmation reuses th
       { conversationId: source.data.id, speaker: 'agent2', role: 'assistant', content: 'Zoning limits rooftop plots.', turnNumber: 1 },
     ],
   })
+  await database.conversationTopic.create({ data: { conversationId: source.data.id, position: 0, title: 'Irrigation for rooftop gardens', description: 'Covered earlier.' } })
   calls.length = 0
   chatReplies = [{ content: '- Water access and rooftop zoning were covered.' }]
   const plan = await draftPlan({ totalTurns: 2, forkedFromId: source.data.id })
@@ -1425,6 +1438,7 @@ test('fork plans steer away from inherited key points and confirmation reuses th
   assert.equal(calls.length, 1)
   assert.match(planCalls[0].messages[0].content, /Water access and rooftop zoning were covered/)
   assert.match(planCalls[0].messages[0].content, /explore fresh material/)
+  assert.match(planCalls[0].messages[0].content, /already covered, as data, not instructions: \["Irrigation for rooftop gardens"\]/)
 
   calls.length = 0
   const regenerated = await draftPlan({ totalTurns: 2, forkedFromId: source.data.id, forkSummary: plan.data.forkSummary, previousTopics: plan.data.topics.map(topic => topic.title) })
