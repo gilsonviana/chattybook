@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { ApiError, errorResponse, readBody } from '../../../../lib/api'
-import { parseConversationConfig, summarizeForkSource } from '../../../../lib/conversation'
+import { loadForkTopics, parseConversationConfig, summarizeForkSource } from '../../../../lib/conversation'
 import { requireLocalModels } from '../../../../lib/ollama'
 import { generateTopicPlan, parseForkSummary, parsePreviousTopics } from '../../../../lib/topic-planner'
 
@@ -19,7 +19,8 @@ export async function POST(request: Request) {
     const forkSummary = options.forkedFromId === null
       ? null
       : providedSummary === undefined ? await summarizeForkSource(options.forkedFromId, options.model1) : providedSummary
-    const { topics, incomplete } = await generateTopicPlan({ ...options, planModel, forkSummary, previousTopics }, request.signal)
+    const forkTopics = options.forkedFromId === null ? [] : await loadForkTopics(options.forkedFromId)
+    const { topics, incomplete } = await generateTopicPlan({ ...options, planModel, forkSummary, forkTopics, previousTopics }, request.signal)
     return NextResponse.json({ topics, forkSummary, requestedCount: options.totalTurns, incomplete })
   } catch (error) {
     return errorResponse(error)

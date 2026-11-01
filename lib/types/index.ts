@@ -42,6 +42,7 @@ export interface ConversationSummary {
   persona2: string
   responseLength: ResponseLength
   devilsAdvocate: boolean
+  forkedFromId: number | null
   createdAt: string
   updatedAt: string
   messageCount: number

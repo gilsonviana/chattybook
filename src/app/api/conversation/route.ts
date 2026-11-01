@@ -16,6 +16,7 @@ export async function GET() {
         persona2: true,
         responseLength: true,
         devilsAdvocate: true,
+        forkedFromId: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { messages: true } },

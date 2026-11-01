@@ -369,6 +369,7 @@ export default function Home() {
                       <span className="history-meta">
                         {[
                           ...(conversation.status === 'generating' ? ['Generating'] : []),
+                          ...(conversation.forkedFromId !== null ? ['Forked'] : []),
                           ...[conversation.persona1, conversation.persona2].filter(persona => persona !== 'None'),
                           ...(conversation.devilsAdvocate ? ["Devil's advocate"] : []),
                           conversation.responseLength.charAt(0).toUpperCase() + conversation.responseLength.slice(1),
