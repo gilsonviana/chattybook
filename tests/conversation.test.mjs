@@ -110,7 +110,9 @@ before(async () => {
         'trailing-answer': 'How can gardens help cities? They provide food.',
       }
       response.end(JSON.stringify({
-        message: { role: 'assistant', content: scripted?.content ?? (mode === 'empty' ? '' : body.messages[0].content.includes('Q&A mode is active')
+        message: { role: 'assistant', content: scripted?.content ?? (mode === 'empty' ? '' : body.messages[0].content.includes('You are the topic agent')
+          ? 'NEW: Funding Urban Gardens'
+          : body.messages[0].content.includes('Q&A mode is active')
           ? qaReplies[mode] ?? 'How can cities support urban gardens?'
           : `A real fixture answer from ${body.model}, response ${calls.length}.`) },
         done: true,
@@ -1158,4 +1160,100 @@ test('invalid inputs, missing conversations, and uninstalled/cloud models are re
   mode = 'online'
   const malformed = await fetch(`${base}/api/conversation`, { method: 'POST', body: '{invalid' })
   assert.equal(malformed.status, 400)
+})
+
+async function seedMessages(conversationId, contents, start = 0) {
+  for (const [offset, content] of contents.entries()) {
+    const index = start + offset
+    await database.message.create({
+      data: { conversationId, speaker: index % 2 === 0 ? 'agent1' : 'agent2', role: 'assistant', content, turnNumber: Math.floor(index / 2) + 1 },
+    })
+  }
+  return database.message.findMany({ where: { conversationId }, orderBy: { id: 'asc' } })
+}
+
+function updateTopics(id, body = {}) {
+  return api(`/api/conversation/${id}/topics`, body)
+}
+
+test('discussion topics run per full turn, anchor at Agent 1, and skip unchanged topics', async () => {
+  const created = await createConversation({ totalTurns: 3 })
+  const id = created.data.id
+  let messages = await seedMessages(id, ['Gardens need funding.'])
+  calls.length = 0
+  const early = await updateTopics(id)
+  assert.equal(early.status, 200, JSON.stringify(early.data))
+  assert.deepEqual(early.data.topics, [])
+  assert.equal(early.data.topicModel, localModels[0])
+  assert.equal(calls.length, 0)
+
+  messages = await seedMessages(id, ['Grants can help.', 'Zoning matters too.', 'Zoning reform is slow.'], 1)
+  assert.deepEqual(messages.map(message => message.speaker), ['agent1', 'agent2', 'agent1', 'agent2'])
+
+  chatReplies = [{ content: 'NEW: "Funding Urban Gardens".' }, { content: 'SAME' }]
+  const result = await updateTopics(id)
+  assert.equal(result.status, 200, JSON.stringify(result.data))
+  assert.equal(calls.length, 2)
+  assert.deepEqual(result.data.topics.map(topic => [topic.title, topic.messageId]), [['Funding Urban Gardens', messages[0].id]])
+  assert.match(calls[0].messages[0].content, /You are the topic agent/)
+  assert.match(calls[0].messages[0].content, /Output exactly NEW:/)
+  assert.match(calls[1].messages[0].content, /output exactly SAME/)
+  assert.equal(JSON.parse(calls[1].messages[1].content).currentTopic, 'Funding Urban Gardens')
+  assert.match(JSON.parse(calls[1].messages[1].content).newestMessages, /Zoning matters too\.\n\nAgent 2: Zoning reform is slow\./)
+
+  calls.length = 0
+  assert.equal((await updateTopics(id)).data.topics.length, 1)
+  assert.equal(calls.length, 0)
+
+  const saved = await api(`/api/conversation/${id}`)
+  assert.deepEqual(saved.data.topics.map(topic => topic.title), ['Funding Urban Gardens'])
+  assert.equal(saved.data.topicModel, localModels[0])
+})
+
+test('Q&A topics run after each Agent 1 question and anchor at the question', async () => {
+  const created = await createConversation({ totalTurns: 3, mode: 'qa' })
+  const id = created.data.id
+  const messages = await seedMessages(id, ['How do gardens reduce flooding?', 'They absorb rain.', 'Who pays for rain gardens?'])
+  calls.length = 0
+  chatReplies = [{ content: 'NEW: Flood Control' }, { content: 'NEW: Paying for Rain Gardens' }]
+  const result = await updateTopics(id, { model: localModels[1] })
+  assert.equal(result.status, 200, JSON.stringify(result.data))
+  assert.equal(calls.length, 2)
+  assert.ok(calls.every(call => call.model === localModels[1]))
+  assert.deepEqual(result.data.topics.map(topic => [topic.title, topic.messageId]), [
+    ['Flood Control', messages[0].id],
+    ['Paying for Rain Gardens', messages[2].id],
+  ])
+  assert.match(JSON.parse(calls[1].messages[1].content).newestMessages, /Agent 2: They absorb rain\.\n\nAgent 1: Who pays/)
+  assert.equal((await api(`/api/conversation/${id}`)).data.topicModel, localModels[1])
+})
+
+test('invalid topic replies and model failures do not advance topic progress', async () => {
+  const created = await createConversation({ totalTurns: 2 })
+  const id = created.data.id
+  await seedMessages(id, ['Gardens need funding.', 'Grants can help.'])
+  for (const reply of [{ content: 'SAME' }, { content: `NEW: ${'x'.repeat(81)}` }, { status: 500 }]) {
+    chatReplies = [reply]
+    const failed = await updateTopics(id)
+    assert.ok(failed.status >= 500, JSON.stringify(failed.data))
+    assert.equal((await database.conversation.findUnique({ where: { id } })).topicsThroughMessageId, null)
+  }
+  chatReplies = [{ content: 'Funding Gardens' }]
+  assert.deepEqual((await updateTopics(id)).data.topics.map(topic => topic.title), ['Funding Gardens'])
+})
+
+test('topic requests validate input and topics are deleted with their conversation', async () => {
+  const created = await createConversation({ totalTurns: 2 })
+  const id = created.data.id
+  assert.equal((await api('/api/conversation/invalid/topics', {})).status, 400)
+  assert.equal((await updateTopics(999999)).status, 404)
+  for (const model of ['', 5, 'not-installed', 'remote:cloud']) {
+    assert.equal((await updateTopics(id, { model })).status, 400, JSON.stringify(model))
+  }
+  await seedMessages(id, ['Gardens need funding.', 'Grants can help.'])
+  const before = await database.conversation.findUnique({ where: { id } })
+  assert.equal((await updateTopics(id)).data.topics.length, 1)
+  assert.equal((await database.conversation.findUnique({ where: { id } })).updatedAt.getTime(), before.updatedAt.getTime())
+  assert.equal((await deleteConversation(id)).status, 200)
+  assert.equal(await database.topic.count({ where: { conversationId: id } }), 0)
 })

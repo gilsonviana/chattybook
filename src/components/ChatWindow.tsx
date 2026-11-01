@@ -19,9 +19,10 @@ interface ChatWindowProps {
   forkSummary: string | null
   forkCount: number
   endRef: RefObject<HTMLDivElement | null>
+  highlightedMessageId?: number | null
 }
 
-export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, persona2, model1, model2, forkSummary, endRef }: ChatWindowProps) {
+export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, persona2, model1, model2, forkSummary, endRef, highlightedMessageId }: ChatWindowProps) {
   const [copyStatus, setCopyStatus] = useState<{ messageId: number; status: 'copied' | 'error' } | null>(null)
 
   async function copyResponse(message: Message) {
@@ -43,7 +44,12 @@ export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, p
       )}
       {messages.length === 0 && <p className="muted conversation-empty">The agents&apos; responses will appear here.</p>}
       {messages.map(message => (
-        <article key={message.id} className={`message ${message.speaker}`}>
+        <article
+          key={message.id}
+          id={`message-${message.id}`}
+          tabIndex={-1}
+          className={`message ${message.speaker}${highlightedMessageId === message.id ? ' is-highlighted' : ''}`}
+        >
           <h3>Agent {message.speaker === 'agent1' ? '1' : '2'} ({getPersonaLabel(message.speaker === 'agent1' ? persona1 : persona2)}) - {message.speaker === 'agent1' ? model1 : model2} <span>Turn {message.turnNumber} of {totalTurns}</span></h3>
           <p>{message.content}</p>
           <button

@@ -13,6 +13,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       where: { id: conversationId },
       include: {
         messages: { orderBy: { id: 'asc' } },
+        topics: { orderBy: { messageId: 'asc' } },
         forks: { select: { id: true, subject: true, title: true, status: true, createdAt: true }, orderBy: { id: 'asc' } },
       },
     })

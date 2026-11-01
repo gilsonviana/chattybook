@@ -17,6 +17,8 @@ export interface Conversation {
   forkSummary: string | null
   summary: string | null
   summaryModel: string | null
+  topicModel: string | null
+  topics: Topic[]
   forks: ConversationFork[]
   status: string
   createdAt: string
@@ -47,6 +49,14 @@ export interface Message {
   role: string
   content: string
   turnNumber: number
+  createdAt: string
+}
+
+export interface Topic {
+  id: number
+  conversationId: number
+  messageId: number
+  title: string
   createdAt: string
 }
 
