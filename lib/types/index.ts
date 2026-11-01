@@ -7,8 +7,6 @@ export interface Conversation {
   title: string | null
   model1: string
   model2: string
-  reviewerModel: string | null
-  reviewEnabled: boolean
   persona1: string
   persona2: string
   mode: ConversationMode
@@ -32,8 +30,6 @@ export interface ConversationSummary {
   id: number
   subject: string
   title: string | null
-  reviewerModel: string | null
-  reviewEnabled: boolean
   status: string
   persona1: string
   persona2: string
@@ -50,9 +46,6 @@ export interface Message {
   speaker: 'agent1' | 'agent2'
   role: string
   content: string
-  reviewStatus: 'accepted' | 'rejected' | 'unchecked' | null
-  reviewReason: 'ok' | 'disconnected' | 'repetitive' | 'compound' | 'not_question_only' | 'reviewer_error' | 'timeout' | null
-  reviewExplanation: string | null
   turnNumber: number
   createdAt: string
 }

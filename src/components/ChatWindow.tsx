@@ -5,18 +5,8 @@ import { AlertCircle, Check, Copy } from 'lucide-react'
 import { getPersonaLabel } from '../../lib/personas'
 import type { Message } from '../../lib/types'
 
-const reviewReasonLabels: Partial<Record<NonNullable<Message['reviewReason']>, string>> = {
-  disconnected: 'It does not meaningfully build on the latest answer.',
-  repetitive: 'It repeats an earlier question or requests information already supplied.',
-  compound: 'It contains multiple independently answerable requests.',
-  not_question_only: 'It includes content beyond one focused question.',
-  reviewer_error: 'The reviewer failed to return a valid result.',
-  timeout: 'The review timed out before verification finished.',
-}
-
 interface ChatWindowProps {
   title: string
-  reviewerModel: string | null
   messages: Message[]
   isLoading: boolean
   totalTurns: number
@@ -71,13 +61,6 @@ export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, p
               ? copyStatus.status === 'copied' ? <Check size={14} aria-hidden="true" /> : <AlertCircle size={14} aria-hidden="true" />
               : <Copy size={14} aria-hidden="true" />}
           </button>
-          {(message.reviewStatus === 'rejected' || message.reviewStatus === 'unchecked') && (
-            <p className="review-warning" role="note">
-              {message.reviewStatus === 'rejected' ? 'Quality warning: follow-up did not pass review. ' : 'Quality warning: follow-up could not be verified. '}
-              {(message.reviewReason && reviewReasonLabels[message.reviewReason]) || (message.reviewStatus === 'rejected' ? 'No reason was recorded.' : 'No details were recorded.')}
-              {message.reviewExplanation && <> Reviewer: {message.reviewExplanation}</>}
-            </p>
-          )}
         </article>
       ))}
       {isLoading && (() => {

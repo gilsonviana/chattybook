@@ -46,20 +46,12 @@ response from each agent: **10 generated responses** in total.
    changes a Long selection to Medium.
    The first question opens the subject. Follow-ups build on Agent 2's latest
    answer, with connected branches to other aspects of the subject allowed.
-   **Review model** selects an installed local model to assess follow-ups; its
-   default follows Agent 1's model. Openers, Agent 2 replies, and discussion-mode
-   messages are not reviewed.
-   **Review questions** is enabled by default. Turn it off at setup or on the
-   conversation page to skip model-based review. While generation is running,
-   the current turn finishes with its original setting; the next follow-up uses
-   the saved setting. The reviewer selection is retained while disabled, and
-   forks copy the source conversation's review setting.
    **Devil's advocate** makes Agent 1 skeptical: in discussion mode it questions
    Agent 2's claims and tries to refute them; in Q&A mode its questions challenge a
    specific claim or assumption in Agent 2's latest answer (still one question per
    turn). Agent 2's instructions are unchanged.
 
-Each answer appears when generation and any follow-up review finish. The first request can
+Each answer appears when generation finishes. The first request can
 take longer while Ollama loads model weights. Existing answers stay visible while
 the next agent thinks. Conversations and completion status are saved in SQLite.
 Each conversation has its own `/conversation/{id}` URL, and the home page lists
@@ -93,30 +85,14 @@ print layout of the dialogue and any saved summary; choose **Save as PDF** as th
 If generation fails, the actual error is displayed; **Retry / continue dialogue**
 reloads persisted messages and resumes without adding a fake or empty answer.
 
-Q&A follow-ups are drafted, reviewed, and repaired at most twice if needed (three
-total candidates). Generation stops as soon as the reviewer returns `ok`. The
-review checks connection to the latest answer, conversational progress, and a
-single independently answerable question. Repetition means requesting information
-already supplied in Agent 2's answers; returning to the same topic to ask for a
-new detail is allowed. Drafting, model checks, review, and
-repair share a three-minute budget. Review adds local inference calls and can take
-longer when switching models.
-When review is disabled, follow-ups still use the grounding prompts and bounded
-question-format repairs, but make no reviewer calls and receive no quality warning.
-Warnings on earlier reviewed questions remain unchanged.
-
-Review is advisory: if the final question is rejected, review fails, or the budget
-expires, the latest question that passes the one-question format check is saved.
-Rejected or unverified follow-ups show a **Quality warning** that remains after
-reopening the conversation. Rejected warnings include the recorded reason and,
-when supplied by the reviewer, a one-line explanation capped at 240 characters.
-Explanations are displayed as plain text and describe the reviewer's judgment,
-not proof that a question is bad. Unverified warnings distinguish a timeout from
-reviewer failure. Historical warnings without details say none were recorded;
-existing messages are not re-reviewed. If no valid question exists, generation fails and can
-be retried. Cancellation always prevents an in-flight question from being saved.
-The format check enforces one terminal question mark; semantic review can detect
-compound requests but does not guarantee relevance or factual accuracy.
+Q&A follow-ups use prompts grounded in Agent 2's latest answer and earlier
+questions. A draft that passes the question-format check is saved immediately.
+Malformed drafts are repaired at most twice (three total attempts), with model
+checks, drafting, and repairs sharing a three-minute budget. Failed generation
+does not save a partial turn and can be retried. Cancellation always prevents an
+in-flight question from being saved. The format check enforces exactly one
+question mark at the end; it does not guarantee relevance, factual accuracy, or
+that the sentence contains only one independently answerable request.
 
 ## Checks and API
 
@@ -124,9 +100,7 @@ compound requests but does not guarantee relevance or factual accuracy.
 - `GET /api/ollama/models`: `{ models: string[] }` containing installed local model
   names, or `{ models: [], error }` (503). An empty successful list means no models
   are installed. Use **Refresh models** after installing a model or starting Ollama.
-- `POST /api/conversation`: `{ subject, model1, model2, reviewerModel?, reviewEnabled?, persona1?, persona2?, mode?, responseLength?, totalTurns?, devilsAdvocate?, forkedFromId? }`.
-   `reviewEnabled` is a boolean (default `true`, including existing conversations).
-   The selected reviewer must be available only when Q&A review is enabled.
+- `POST /api/conversation`: `{ subject, model1, model2, persona1?, persona2?, mode?, responseLength?, totalTurns?, devilsAdvocate?, forkedFromId? }`.
    `devilsAdvocate` is a boolean (default `false`). `forkedFromId` is the ID of an
    existing conversation or `null` (the default); a missing source returns 404.
    Forking generates the summary with `model1` (512-token ceiling per request)
@@ -138,9 +112,7 @@ compound requests but does not guarantee relevance or factual accuracy.
    use Medium instructions and token ceilings for future turns without rewriting history.
    These map to 256, 1024, and 2048 generated-token ceilings. `totalTurns`
    defaults to 5 and accepts integers from 1 to 100. Returns a new conversation
-   with no placeholder messages. `reviewerModel` is an installed local model name
-   or `null` (the default, using Agent 1's model). Review has a separate 256-token
-   ceiling. Existing conversations use the same default without rewriting history.
+   with no placeholder messages. Agent 1's Q&A questions always use a 256-token ceiling.
 - `GET /api/conversation`: returns newest-first conversation summaries with IDs,
    subjects, nullable display titles, status, devil's advocate flags, timestamps,
    and message counts. When
@@ -149,9 +121,8 @@ compound requests but does not guarantee relevance or factual accuracy.
    Titles are trimmed and must contain 1 to 120 characters. The original subject
    remains unchanged. A bodyless PATCH retains the existing generation-cancellation
    behavior.
-   A separate `{ reviewEnabled: boolean }` payload changes review for future Q&A
-   follow-ups, including while generating, without changing status or cancelling
-   a turn. Do not combine it with rename or resume fields.
+   `{ resume: true }` releases a generating conversation for retry and fences off
+   its abandoned response.
 - `POST /api/chat`: `{ conversationId, expectedMessageCount }`. Generates and saves
   exactly one response. The server chooses the next agent, constructs history from
   that agent's perspective, and marks the conversation complete after both agents
@@ -166,12 +137,6 @@ compound requests but does not guarantee relevance or factual accuracy.
    `summary` and `summaryModel`,
    `forks` (`{ id, subject, title, status, createdAt }` for each conversation
    forked from it, oldest first), and ordered messages.
-   Messages include `reviewStatus`: `accepted`, `rejected`, `unchecked`, or `null`
-   when review is disabled, does not apply, or the message predates review support.
-   Nullable `reviewReason` is `ok`, `disconnected`, `repetitive`, `compound`, or
-   `not_question_only` for reviewed questions, or `reviewer_error` / `timeout`
-   when verification could not finish. Nullable `reviewExplanation` contains the
-   reviewer's short explanation, normalized to one line and capped at 240 characters.
 
 If Ollama is unavailable, start it locally. If no models appear, run `ollama list`
 and install a chat-capable model. Model, connection, and database errors are
@@ -188,37 +153,21 @@ npm run lint
 npm test
 ```
 
-Run the optional labeled reviewer evaluation against an installed local model:
-
-```sh
-npm run reviewer:eval -- gemma2:2b
-npm run reviewer:eval -- qwen2.5:latest --json reports/qwen.json --min-score 80
-```
-
-The evaluator uses the production reviewer prompt, schema, and verdict parser on
-balanced accept and retry cases covering every review reason. Each case is
-scored on four rules, combined into a weighted 0-100 score:
-
-| Rule | Weight | Passes when |
-| --- | --- | --- |
-| warning | 40 | A quality warning is shown exactly when expected (invalid output counts as an unverified warning, as in the app) |
-| reason | 30 | The reason label matches |
-| schema | 15 | The output is valid schema JSON with a consistent verdict and reason |
-| explanation | 15 | A rejection includes a one-line explanation of at most 240 characters |
-
-It also reports quality-warning precision, recall, and F1, and reason accuracy
-per expected label. `--json <path>` saves the full report, including raw outputs
-and a SHA-256 of the reviewer prompt, so runs can be compared across prompt
-revisions. The command exits nonzero when the score is below `--min-score`
-(default 100). It does not download models and is not part of `npm test`; the
-scoring logic itself is unit-tested there.
-
 `npm test` builds the production app and tests the real HTTP routes against a
 controlled local Ollama-compatible fixture and a temporary SQLite database. It
 covers default five-turn dialogues, history/agent ordering, persisted completion,
 validation, concurrency, retries, empty output, offline health, and model listing.
-It also covers reviewer selection, follow-up grounding prompts, bounded repairs,
-advisory fallback, strict verdict parsing, candidate-specific reasons/explanations,
-feedback normalization and persistence, cancellation at every review stage,
-and the real three-minute aggregate deadline (so the suite takes over three minutes).
+It also covers follow-up grounding prompts, bounded format repairs, cancellation
+during drafting and repairs, and the real three-minute aggregate deadline
+(so the suite takes over three minutes).
 The fixture does not download models or touch your conversation database.
+
+The development migration history uses a single initial schema. Databases with
+older migration history must be reset before applying it; this deletes all data:
+
+```sh
+npx prisma migrate reset --force --skip-seed
+```
+
+Stop application servers before resetting, then restart them after regenerating
+the Prisma client. This reset procedure is for disposable development data only.

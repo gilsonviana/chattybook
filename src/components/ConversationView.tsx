@@ -31,10 +31,6 @@ export function ConversationView({ id }: { id: string }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isStopping, setIsStopping] = useState(false)
-  const [isSavingReview, setIsSavingReview] = useState(false)
-  const [reviewError, setReviewError] = useState('')
-  const reviewSavePending = useRef(false)
-  const reviewRevision = useRef(0)
   const [error, setError] = useState('')
   const loaded = useRef(false)
   const busy = useRef(false)
@@ -47,40 +43,11 @@ export function ConversationView({ id }: { id: string }) {
   const hasConversation = conversation !== null
 
   const loadConversation = useCallback(async () => {
-    const revision = reviewRevision.current
     const active = await requestJson<Conversation>(`/api/conversation/${id}`)
-    setConversation(current => current && (reviewSavePending.current || revision !== reviewRevision.current)
-      ? { ...active, reviewEnabled: current.reviewEnabled }
-      : active)
+    setConversation(active)
     setMessages(active.messages)
     return active
   }, [id])
-
-  async function toggleReview() {
-    if (!conversation || reviewSavePending.current) return
-    const previous = conversation.reviewEnabled
-    const reviewEnabled = !previous
-    reviewSavePending.current = true
-    reviewRevision.current++
-    setIsSavingReview(true)
-    setReviewError('')
-    setConversation(current => current ? { ...current, reviewEnabled } : current)
-    try {
-      const result = await requestJson<{ reviewEnabled: boolean }>(`/api/conversation/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reviewEnabled }),
-      })
-      setConversation(current => current ? { ...current, reviewEnabled: result.reviewEnabled } : current)
-    } catch (saveError) {
-      setConversation(current => current ? { ...current, reviewEnabled: previous } : current)
-      setReviewError(saveError instanceof Error ? saveError.message : 'Could not update question review.')
-    } finally {
-      reviewRevision.current++
-      reviewSavePending.current = false
-      setIsSavingReview(false)
-    }
-  }
 
   function scrollToPosition(top: number) {
     const destination = Math.max(0, Math.min(top, document.documentElement.scrollHeight - window.innerHeight))
@@ -315,30 +282,11 @@ export function ConversationView({ id }: { id: string }) {
       </div>
       {isLoading && !conversation && <p className="muted" role="status">Loading conversation...</p>}
       {error && <div className="error" role="alert">{error}</div>}
-      {reviewError && <div className="error" role="alert">{reviewError}</div>}
       {error && !conversation && <Link href="/">Back to conversations</Link>}
       {conversation && (
         <>
-          {conversation.mode === 'qa' && (
-            <div className="conversation-review">
-              <button
-                type="button"
-                className="mode-toggle"
-                role="switch"
-                aria-checked={conversation.reviewEnabled}
-                aria-busy={isSavingReview}
-                onClick={() => void toggleReview()}
-                disabled={isSavingReview}
-              >
-                <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
-                <span>Review questions</span>
-                <span className="mode-toggle-state" aria-hidden="true">{conversation.reviewEnabled ? 'On' : 'Off'}</span>
-              </button>
-            </div>
-          )}
           <ChatWindow
             title={conversation.title ?? conversation.subject}
-            reviewerModel={conversation.reviewerModel}
             messages={messages}
             isLoading={isLoading}
             totalTurns={conversation.totalTurns}

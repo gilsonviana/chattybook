@@ -13,8 +13,6 @@ export async function GET() {
         id: true,
         subject: true,
         title: true,
-        reviewerModel: true,
-        reviewEnabled: true,
         status: true,
         persona1: true,
         persona2: true,
@@ -37,17 +35,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { subject, model1, model2, reviewerModel = null, reviewEnabled = true, persona1 = 'None', persona2 = 'None', mode = 'discussion', responseLength = 'medium', totalTurns = 5, devilsAdvocate = false, forkedFromId = null } = await readBody(request)
+    const { subject, model1, model2, persona1 = 'None', persona2 = 'None', mode = 'discussion', responseLength = 'medium', totalTurns = 5, devilsAdvocate = false, forkedFromId = null } = await readBody(request)
     if (typeof subject !== 'string' || !subject.trim() ||
         typeof model1 !== 'string' || !model1.trim() ||
         typeof model2 !== 'string' || !model2.trim()) {
       throw new ApiError('A discussion subject and two local models are required.', 400)
-    }
-    if (reviewerModel !== null && (typeof reviewerModel !== 'string' || !reviewerModel.trim())) {
-      throw new ApiError('Review model must be an installed local model or null.', 400)
-    }
-    if (typeof reviewEnabled !== 'boolean') {
-      throw new ApiError('Review enabled must be true or false.', 400)
     }
     if (!isPersona(persona1) || !isPersona(persona2)) {
       throw new ApiError('Each agent persona must be one of the supported options.', 400)
@@ -72,8 +64,7 @@ export async function POST(request: Request) {
     }
     const conversation = await initializeConversation({
       subject: subject.trim(), model1: model1.trim(), model2: model2.trim(),
-      reviewerModel: typeof reviewerModel === 'string' ? reviewerModel.trim() : null,
-      reviewEnabled, persona1, persona2, mode, responseLength, totalTurns, devilsAdvocate, forkedFromId,
+      persona1, persona2, mode, responseLength, totalTurns, devilsAdvocate, forkedFromId,
     })
     return NextResponse.json(conversation, { status: 201 })
   } catch (error) {

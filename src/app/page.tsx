@@ -43,8 +43,6 @@ export default function Home() {
   const [turns, setTurns] = useState<number | ''>(5)
   const [model1, setModel1] = useState('')
   const [model2, setModel2] = useState('')
-  const [reviewerModel, setReviewerModel] = useState<string | null>(null)
-  const [reviewEnabled, setReviewEnabled] = useState(true)
   const [persona1, setPersona1] = useState<Persona>('None')
   const [persona2, setPersona2] = useState<Persona>('None')
   const [mode, setMode] = useState<ConversationMode>('qa')
@@ -91,8 +89,6 @@ export default function Home() {
         if (typeof settings.turns === 'number' && Number.isInteger(settings.turns) && settings.turns >= 1 && settings.turns <= 100) setTurns(settings.turns)
         if (typeof settings.model1 === 'string') setModel1(settings.model1)
         if (typeof settings.model2 === 'string') setModel2(settings.model2)
-        if (settings.reviewerModel === null || typeof settings.reviewerModel === 'string') setReviewerModel(settings.reviewerModel)
-        if (typeof settings.reviewEnabled === 'boolean') setReviewEnabled(settings.reviewEnabled)
         if (isPersona(settings.persona1)) setPersona1(settings.persona1)
         if (isPersona(settings.persona2)) setPersona2(settings.persona2)
         const restoredMode = isConversationMode(settings.mode) ? settings.mode : 'qa'
@@ -119,12 +115,12 @@ export default function Home() {
     try {
       window.localStorage.setItem('chattybook:settings', JSON.stringify({
         turns: typeof turns === 'number' && Number.isInteger(turns) && turns >= 1 && turns <= 100 ? turns : 5,
-        model1, model2, reviewerModel, reviewEnabled, persona1, persona2, mode, responseLength, devilsAdvocate,
+        model1, model2, persona1, persona2, mode, responseLength, devilsAdvocate,
       }))
     } catch {
       return
     }
-  }, [checking, turns, model1, model2, reviewerModel, reviewEnabled, persona1, persona2, mode, responseLength, devilsAdvocate])
+  }, [checking, turns, model1, model2, persona1, persona2, mode, responseLength, devilsAdvocate])
 
   useEffect(() => {
     let mounted = true
@@ -152,7 +148,7 @@ export default function Home() {
       const active = await requestJson<Conversation>('/api/conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, model1, model2, reviewerModel: mode === 'qa' ? reviewerModel : null, reviewEnabled, persona1, persona2, mode, responseLength, totalTurns: turns, devilsAdvocate, forkedFromId: forkSource?.id ?? null }),
+        body: JSON.stringify({ subject, model1, model2, persona1, persona2, mode, responseLength, totalTurns: turns, devilsAdvocate, forkedFromId: forkSource?.id ?? null }),
       })
       window.sessionStorage.setItem('chattybook:new-conversation', String(active.id))
       router.push(`/conversation/${active.id}`)
@@ -167,7 +163,7 @@ export default function Home() {
     setForkingConversationId(conversationId)
     try {
       const saved = await requestJson<Conversation>(`/api/conversation/${conversationId}`)
-      const missingModels = [...new Set([saved.model1, saved.model2, ...(saved.mode === 'qa' && saved.reviewEnabled && saved.reviewerModel ? [saved.reviewerModel] : [])])]
+      const missingModels = [...new Set([saved.model1, saved.model2])]
         .filter(model => !availableModels.includes(model))
       if (missingModels.length) {
         throw new Error(`Cannot fork: these models are unavailable locally: ${missingModels.join(', ')}. Install them and refresh models first.`)
@@ -176,8 +172,6 @@ export default function Home() {
       setTurns(saved.totalTurns)
       setModel1(saved.model1)
       setModel2(saved.model2)
-      setReviewerModel(saved.reviewerModel)
-      setReviewEnabled(saved.reviewEnabled)
       setPersona1(isPersona(saved.persona1) ? saved.persona1 : 'None')
       setPersona2(isPersona(saved.persona2) ? saved.persona2 : 'None')
       setMode(saved.mode)
@@ -285,30 +279,6 @@ export default function Home() {
             <legend>Agents</legend>
             <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
             <p className="muted">Each agent can use a different local model and persona.</p>
-            {mode === 'qa' && (
-              <>
-                <button
-                  type="button"
-                  className="mode-toggle"
-                  role="switch"
-                  aria-checked={reviewEnabled}
-                  onClick={() => setReviewEnabled(current => !current)}
-                  disabled={isLoading}
-                >
-                  <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
-                  <span>Review questions</span>
-                  <span className="mode-toggle-state" aria-hidden="true">{reviewEnabled ? 'On' : 'Off'}</span>
-                </button>
-                <label>
-                  Review model
-                  <select value={reviewerModel ?? ''} onChange={event => setReviewerModel(event.target.value || null)} disabled={!reviewEnabled || isLoading || checking || !models.length}>
-                    <option value="">Use Agent 1 model{model1 ? ` (${model1})` : ''}</option>
-                    {reviewerModel && !models.includes(reviewerModel) && <option value={reviewerModel} disabled>{reviewerModel} (unavailable)</option>}
-                    {models.map(model => <option key={model} value={model}>{model}</option>)}
-                  </select>
-                </label>
-              </>
-            )}
           </fieldset>
           <fieldset className="setup-group">
             <legend>Dialogue settings</legend>
@@ -386,7 +356,6 @@ export default function Home() {
                           ...(conversation.status === 'generating' ? ['Generating'] : []),
                           ...[conversation.persona1, conversation.persona2].filter(persona => persona !== 'None'),
                           ...(conversation.devilsAdvocate ? ["Devil's advocate"] : []),
-                          ...(!conversation.reviewEnabled ? ['Review off'] : conversation.reviewerModel ? [`Reviewer: ${conversation.reviewerModel}`] : []),
                           conversation.responseLength.charAt(0).toUpperCase() + conversation.responseLength.slice(1),
                         ].join(' · ')}
                       </span>

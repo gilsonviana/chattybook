@@ -1,4 +1,4 @@
-import { Ollama, type ChatRequest, type Message } from 'ollama'
+import { Ollama, type Message } from 'ollama'
 import { ApiError } from './api'
 
 function localHost(): string {
@@ -76,17 +76,16 @@ export async function requireLocalModels(names: string[], signal?: AbortSignal) 
   }
 }
 
-export async function generateChatResponse(model: string, messages: Message[], maxTokens: number, signal?: AbortSignal, settings?: Pick<ChatRequest, 'format'> & { temperature?: number }): Promise<string> {
+export async function generateChatResponse(model: string, messages: Message[], maxTokens: number, signal?: AbortSignal): Promise<string> {
   try {
     signal?.throwIfAborted()
     const response = await client(300000, signal).chat({
       model,
       messages,
-      format: settings?.format,
       stream: false,
       // GPT-OSS requires a thinking level rather than a boolean.
       think: model.startsWith('gpt-oss') ? 'low' : false,
-      options: { num_predict: maxTokens, ...(settings?.temperature !== undefined ? { temperature: settings.temperature } : {}) },
+      options: { num_predict: maxTokens },
     })
     const content = response.message?.content?.trim()
     if (!content) {
