@@ -261,8 +261,9 @@ test('conversation history lists newest first with summaries and detail stays sc
   assert.equal(createdSummaries[1].persona1, 'Student')
   assert.equal(createdSummaries[1].persona2, 'Professor')
   assert.equal(createdSummaries[1].responseLength, 'long')
+  assert.equal(createdSummaries[0].forkedFromId, null)
   assert.deepEqual(Object.keys(createdSummaries[0]).sort(), [
-    'createdAt', 'devilsAdvocate', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'status', 'subject', 'title', 'updatedAt',
+    'createdAt', 'devilsAdvocate', 'forkedFromId', 'id', 'messageCount', 'persona1', 'persona2', 'responseLength', 'status', 'subject', 'title', 'updatedAt',
   ])
 
   const firstDetail = await api(`/api/conversation/${first.data.id}`)
@@ -416,9 +417,11 @@ test('resuming a generating conversation fences off the abandoned reply', async 
 
 test('independent personas persist and guide only their assigned agent', async () => {
   calls.length = 0
-  const removedPersona = await createConversation({ persona1: 'Minister' })
-  assert.equal(removedPersona.status, 400)
-  assert.match(removedPersona.data.error, /supported options/)
+  for (const removed of ['Minister', 'Politician']) {
+    const removedPersona = await createConversation({ persona1: removed })
+    assert.equal(removedPersona.status, 400)
+    assert.match(removedPersona.data.error, /supported options/)
+  }
 
   const created = await createConversation({ totalTurns: 1, persona1: 'Pastor', persona2: 'Historian' })
   assert.equal(created.status, 201)
@@ -432,6 +435,7 @@ test('independent personas persist and guide only their assigned agent', async (
   assert.equal(calls[0].model, localModels[0])
   assert.match(calls[0].messages[0].content, /compassionate, reflective pastor voice/)
   assert.match(calls[0].messages[0].content, /faith traditions/)
+  assert.match(calls[0].messages[0].content, /on secular or technical subjects, keep faith framing brief and proportionate/)
   assert.doesNotMatch(calls[0].messages[0].content, /historian/i)
   assert.equal(calls[1].model, localModels[1])
   assert.match(calls[1].messages[0].content, /source-conscious historian/)
@@ -443,16 +447,28 @@ test('independent personas persist and guide only their assigned agent', async (
 })
 
 test('unsupported saved personas get no persona guidance', async () => {
-  const created = await createConversation({ totalTurns: 1 })
-  assert.equal(created.status, 201)
-  await database.conversation.update({ where: { id: created.data.id }, data: { persona1: 'Minister' } })
-  const saved = await api(`/api/conversation/${created.data.id}`)
-  assert.equal(saved.data.persona1, 'Minister')
+  for (const removed of ['Minister', 'Politician']) {
+    const created = await createConversation({ totalTurns: 1 })
+    assert.equal(created.status, 201)
+    await database.conversation.update({ where: { id: created.data.id }, data: { persona1: removed } })
+    const saved = await api(`/api/conversation/${created.data.id}`)
+    assert.equal(saved.data.persona1, removed)
 
+    calls.length = 0
+    const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 0 })
+    assert.equal(result.status, 200, JSON.stringify(result.data))
+    assert.doesNotMatch(calls[0].messages[0].content, /minister|pastor|politician|constituents/i)
+  }
+})
+
+test('Student discussion guidance reasons from first principles', async () => {
+  const created = await createConversation({ totalTurns: 1, persona1: 'Student' })
+  assert.equal(created.status, 201)
   calls.length = 0
   const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 0 })
   assert.equal(result.status, 200, JSON.stringify(result.data))
-  assert.doesNotMatch(calls[0].messages[0].content, /minister|pastor/i)
+  assert.match(calls[0].messages[0].content, /curious, intellectually honest student voice: reason aloud from first principles/)
+  assert.doesNotMatch(calls[0].messages[0].content, /naive or exploratory questions/)
 })
 
 test("devil's advocate mode persists and makes only Agent 1 challenge Agent 2", async () => {
@@ -946,16 +962,28 @@ test('Q&A reinforces the single-question rule after conflicting saved dialogue',
   assert.match(result.data.message, /^How does \w+ shape this\?$/)
 })
 
+const speakerLenses = {
+  Student: /connect ideas to what is established/,
+  Professor: /explain relevant concepts with disciplinary context/,
+  Pastor: /bring relevant faith traditions/,
+  Historian: /explain context and change over time/,
+}
+const questionerLenses = {
+  Student: /ask naive or exploratory questions/,
+  Professor: /ask about key concepts, the strength of the evidence/,
+  Pastor: /ask about ethical stakes, meaning, or human impact/,
+  Historian: /ask about origins, change over time, or what the sources actually show/,
+}
+
 test('Q&A requires one independently answerable question for every persona and response length', async () => {
   const subject = 'How did the Civil War affect the U.S. economy and politics?'
   const personaVoices = {
     Student: /curious, intellectually honest student voice/,
     Professor: /precise, scholarly professor voice/,
     Pastor: /compassionate, reflective pastor voice/,
-    Politician: /persuasive, pragmatic politician voice/,
     Historian: /historically grounded, source-conscious historian voice/,
   }
-  for (const persona1 of ['None', 'Student', 'Professor', 'Pastor', 'Politician', 'Historian']) {
+  for (const persona1 of ['None', 'Student', 'Professor', 'Pastor', 'Historian']) {
     for (const responseLength of ['short', 'medium']) {
       calls.length = 0
       const created = await createConversation({ totalTurns: 1, mode: 'qa', subject, persona1, responseLength })
@@ -963,7 +991,11 @@ test('Q&A requires one independently answerable question for every persona and r
       const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: 0 })
       assert.equal(result.status, 200, JSON.stringify(result.data))
       const prompts = calls[0].messages
-      if (persona1 !== 'None') assert.match(prompts[0].content, personaVoices[persona1])
+      if (persona1 !== 'None') {
+        assert.match(prompts[0].content, personaVoices[persona1])
+        assert.match(prompts[0].content, questionerLenses[persona1])
+        assert.doesNotMatch(prompts[0].content, speakerLenses[persona1])
+      }
       assert.match(prompts[0].content, /Choose only one aspect of the subject/)
       assert.match(prompts[0].content, /single sentence of at most 25 words/)
       assert.equal(calls[0].options.num_predict, 256)
@@ -1045,10 +1077,9 @@ test('Q&A Agent 2 stays question-scoped across personas and allowed response len
     Student: /curious, intellectually honest student voice/,
     Professor: /precise, scholarly professor voice/,
     Pastor: /compassionate, reflective pastor voice/,
-    Politician: /persuasive, pragmatic politician voice/,
     Historian: /historically grounded, source-conscious historian voice/,
   }
-  for (const persona2 of ['None', 'Student', 'Professor', 'Pastor', 'Politician', 'Historian']) {
+  for (const persona2 of ['None', 'Student', 'Professor', 'Pastor', 'Historian']) {
     for (const responseLength of ['short', 'medium']) {
       const created = await createConversation({ totalTurns: 2, mode: 'qa', persona2, responseLength })
       assert.equal(created.status, 201)
@@ -1064,7 +1095,11 @@ test('Q&A Agent 2 stays question-scoped across personas and allowed response len
       assert.equal(result.status, 200, JSON.stringify(result.data))
       assert.equal(calls.length, 1)
       const { messages, options } = calls[0]
-      if (persona2 !== 'None') assert.match(messages[0].content, personaVoices[persona2])
+      if (persona2 !== 'None') {
+        assert.match(messages[0].content, personaVoices[persona2])
+        assert.match(messages[0].content, speakerLenses[persona2])
+        assert.doesNotMatch(messages[0].content, questionerLenses[persona2])
+      }
       assert.match(messages[0].content, /Answer only the latest Agent 1 question directly/)
       assert.match(messages[0].content, /Stay strictly within the scope of that question, not the broader conversation subject/)
       assert.match(messages[0].content, /only when necessary to answer it/)
@@ -1215,7 +1250,7 @@ test('topic plans have one ordered topic per turn, use batches, and are never pe
     assert.match(first.messages[0].content, /Plan only; do not write dialogue/)
     assert.match(first.messages[0].content, /urban gardens/)
     assert.match(first.messages[0].content, /one focused question/)
-    assert.match(first.messages[0].content, /Agent 1 speaks as a Student/)
+    assert.match(first.messages[0].content, /Agent 1 speaks with the Student persona and Agent 2 as a neutral participant/)
     assert.match(first.messages[1].content, new RegExp(`exactly ${Math.min(totalTurns, 15)} topics for positions 1 to ${Math.min(totalTurns, 15)} of ${totalTurns}`))
     if (totalTurns === 25) {
       assert.match(planCalls[1].messages[1].content, /exactly 10 topics for positions 16 to 25 of 25/)

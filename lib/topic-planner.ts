@@ -98,7 +98,7 @@ export function parseForkSummary(value: unknown): string | null | undefined {
 
 function planInstructions(request: PlanRequest) {
   const personas = [request.persona1, request.persona2].some(persona => persona !== 'None')
-    ? ` Agent 1 speaks as ${request.persona1 === 'None' ? 'a neutral participant' : `a ${request.persona1}`} and Agent 2 as ${request.persona2 === 'None' ? 'a neutral participant' : `a ${request.persona2}`}; choose angles that suit these perspectives.`
+    ? ` Agent 1 speaks ${request.persona1 === 'None' ? 'as a neutral participant' : `with the ${request.persona1} persona`} and Agent 2 ${request.persona2 === 'None' ? 'as a neutral participant' : `with the ${request.persona2} persona`}; choose angles that suit these perspectives.`
     : ''
   const mode = request.mode === 'qa'
     ? ' This is a Q&A conversation: in each turn Agent 1 asks one focused question and Agent 2 answers it, so each topic must be narrow enough to explore through one focused question.'

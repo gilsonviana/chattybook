@@ -292,7 +292,7 @@ export async function runNextTurn(conversationId: number, expectedMessageCount: 
         : 'Choose only one aspect of the subject.'
     const personaInstruction = isPersona(persona) && persona !== 'None'
       ? isQaConversation
-        ? `${getPersonaInstruction(persona)} This persona shapes voice and relevant context only; it must not change ${isQaQuestion ? 'the one-question limit, the 25-word limit,' : 'the scope of the question being answered'} or the response-length limits.`
+        ? `${getPersonaInstruction(persona, isQaQuestion ? 'questioner' : 'speaker')} This persona shapes voice and relevant context only; it must not change ${isQaQuestion ? 'the one-question limit, the 25-word limit,' : 'the scope of the question being answered'} or the response-length limits.`
         : getPersonaInstruction(persona)
       : ''
     const responseLength = resolveResponseLength(isQaConversation ? 'qa' : 'discussion', isResponseLength(conversation.responseLength) ? conversation.responseLength : 'medium')

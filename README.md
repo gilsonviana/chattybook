@@ -35,8 +35,9 @@ response from each agent: **10 generated responses** in total.
    available models, enter a subject, choose a model and persona for each agent,
    optionally enable Q&A mode and choose a response length, then select **Plan
    topics**. Personas can be set independently to None, Student, Professor,
-   Pastor, Politician, or Historian. Each provides a distinct role-appropriate
-   voice and subject lens. Response length applies to both agents.
+   Pastor, or Historian. Each provides a distinct role-appropriate
+   voice and subject lens; in Q&A mode Agent 1's persona shapes the kind of
+   question it asks. Response length applies to both agents.
    Short prompts require exactly one paragraph with at most 25 words; Medium
    allows up to 3 paragraphs; Long allows up to 7 paragraphs in discussion mode only.
    These are prompt instructions, not output validation; models may exceed the limits.
@@ -130,7 +131,7 @@ that the sentence contains only one independently answerable request.
    Forking generates the summary with `model1` (512-token ceiling per request)
    before responding.
    Personas default to `None` and can be `Student`, `Professor`, `Pastor`,
-   `Politician`, or `Historian`. Mode defaults to `discussion` and can be `qa`.
+   or `Historian`. Mode defaults to `discussion` and can be `qa`.
    Response length defaults to `medium` and can be `short`, `medium`, or `long`.
    Q&A rejects `long` with HTTP 400. Existing Q&A conversations saved with `long`
    use Medium instructions and token ceilings for future turns without rewriting history.

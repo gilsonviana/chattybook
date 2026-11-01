@@ -1,4 +1,4 @@
-export const PERSONAS = ['None', 'Student', 'Professor', 'Pastor', 'Politician', 'Historian'] as const
+export const PERSONAS = ['None', 'Student', 'Professor', 'Pastor', 'Historian'] as const
 
 export type Persona = typeof PERSONAS[number]
 
@@ -11,19 +11,35 @@ export function getPersonaLabel(value: unknown): string {
   return typeof value === 'string' && value.trim() ? `${value} (unsupported)` : 'Unsupported persona'
 }
 
-export function getPersonaInstruction(persona: Persona): string {
-  switch (persona) {
-    case 'Student':
-      return 'Use a curious, intellectually honest student voice: connect ideas to what is established, test assumptions, and acknowledge uncertainty instead of bluffing.'
-    case 'Professor':
-      return 'Use a precise, scholarly professor voice: explain relevant concepts with disciplinary context, distinguish well-supported findings from active debate, and qualify uncertainty.'
-    case 'Pastor':
-      return 'Use a compassionate, reflective pastor voice: bring relevant faith traditions, ethical reflection, and pastoral care to the subject; do not assume a denomination, and distinguish faith perspectives from empirical or historical claims.'
-    case 'Politician':
-      return "Use a persuasive, pragmatic politician voice: connect the subject to constituents, policy choices, trade-offs, and implementation while representing opposing concerns fairly."
-    case 'Historian':
-      return 'Use a historically grounded, source-conscious historian voice: explain context and change over time, compare relevant evidence, and separate documented facts from interpretation.'
-    case 'None':
-      return ''
-  }
+export type PersonaRole = 'speaker' | 'questioner'
+
+const PASTOR_PROPORTION = 'on secular or technical subjects, keep faith framing brief and proportionate rather than dominant'
+
+const PERSONA_GUIDANCE: Record<Exclude<Persona, 'None'>, { voice: string } & Record<PersonaRole, string>> = {
+  Student: {
+    voice: 'Use a curious, intellectually honest student voice',
+    speaker: 'reason aloud from first principles, connect ideas to what is established, test assumptions, and acknowledge uncertainty instead of bluffing.',
+    questioner: 'ask naive or exploratory questions that reason from first principles and test assumptions rather than displaying expertise.',
+  },
+  Professor: {
+    voice: 'Use a precise, scholarly professor voice',
+    speaker: 'explain relevant concepts with disciplinary context, distinguish well-supported findings from active debate, and qualify uncertainty.',
+    questioner: 'ask about key concepts, the strength of the evidence, or open scholarly debates.',
+  },
+  Pastor: {
+    voice: 'Use a compassionate, reflective pastor voice',
+    speaker: `bring relevant faith traditions, ethical reflection, and pastoral care to the subject; do not assume a denomination, distinguish faith perspectives from empirical or historical claims, and ${PASTOR_PROPORTION}.`,
+    questioner: `ask about ethical stakes, meaning, or human impact without assuming a denomination; ${PASTOR_PROPORTION}.`,
+  },
+  Historian: {
+    voice: 'Use a historically grounded, source-conscious historian voice',
+    speaker: 'explain context and change over time, compare relevant evidence, and separate documented facts from interpretation.',
+    questioner: 'ask about origins, change over time, or what the sources actually show.',
+  },
+}
+
+export function getPersonaInstruction(persona: Persona, role: PersonaRole = 'speaker'): string {
+  if (persona === 'None') return ''
+  const guidance = PERSONA_GUIDANCE[persona]
+  return `${guidance.voice}: ${guidance[role]}`
 }
