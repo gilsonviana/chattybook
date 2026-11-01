@@ -3,11 +3,12 @@
 import { useState, type RefObject } from 'react'
 import { AlertCircle, Check, Copy } from 'lucide-react'
 import { getPersonaLabel } from '../../lib/personas'
-import type { Message } from '../../lib/types'
+import type { ConversationTopic, Message } from '../../lib/types'
 
 interface ChatWindowProps {
   title: string
   messages: Message[]
+  topics: ConversationTopic[]
   isLoading: boolean
   totalTurns: number
   persona1: string
@@ -19,10 +20,9 @@ interface ChatWindowProps {
   forkSummary: string | null
   forkCount: number
   endRef: RefObject<HTMLDivElement | null>
-  highlightedMessageId?: number | null
 }
 
-export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, persona2, model1, model2, forkSummary, endRef, highlightedMessageId }: ChatWindowProps) {
+export function ChatWindow({ title, messages, topics, isLoading, totalTurns, persona1, persona2, model1, model2, forkSummary, endRef }: ChatWindowProps) {
   const [copyStatus, setCopyStatus] = useState<{ messageId: number; status: 'copied' | 'error' } | null>(null)
 
   async function copyResponse(message: Message) {
@@ -44,13 +44,11 @@ export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, p
       )}
       {messages.length === 0 && <p className="muted conversation-empty">The agents&apos; responses will appear here.</p>}
       {messages.map(message => (
-        <article
-          key={message.id}
-          id={`message-${message.id}`}
-          tabIndex={-1}
-          className={`message ${message.speaker}${highlightedMessageId === message.id ? ' is-highlighted' : ''}`}
-        >
+        <article key={message.id} className={`message ${message.speaker}`}>
           <h3>Agent {message.speaker === 'agent1' ? '1' : '2'} ({getPersonaLabel(message.speaker === 'agent1' ? persona1 : persona2)}) - {message.speaker === 'agent1' ? model1 : model2} <span>Turn {message.turnNumber} of {totalTurns}</span></h3>
+          {message.speaker === 'agent1' && topics[message.turnNumber - 1] && (
+            <p className="message-topic">Topic: {topics[message.turnNumber - 1].title}</p>
+          )}
           <p>{message.content}</p>
           <button
             type="button"
@@ -72,11 +70,13 @@ export function ChatWindow({ title, messages, isLoading, totalTurns, persona1, p
       {isLoading && (() => {
         const speaker = messages.length % 2 === 0 ? 'agent1' : 'agent2'
         const number = speaker === 'agent1' ? '1' : '2'
+        const topic = topics[Math.floor(messages.length / 2)]
         return (
           <article className={`message ${speaker} typing`} role="status">
             <h3>Agent {number} ({getPersonaLabel(speaker === 'agent1' ? persona1 : persona2)}) - {speaker === 'agent1' ? model1 : model2}</h3>
             <span className="typing-label">is thinking</span>
             <div className="typing-dots" aria-hidden="true"><span /><span /><span /></div>
+            {topic && <p className="typing-hint">Topic: {topic.title}</p>}
             {messages.length === 0 && <p className="typing-hint">Loading a local model can take a moment.</p>}
           </article>
         )

@@ -23,17 +23,28 @@ model Conversation {
   forkSummary   String?
   summary       String?
   summaryModel  String?
-  topicModel    String?
-  topicsThroughMessageId Int?
   status        String      @default("active")
   generationId  String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   messages Message[]      @relation()
-  topics   Topic[]
+  topics   ConversationTopic[]
   forkedFrom Conversation? @relation("ConversationForks", fields: [forkedFromId], references: [id], onDelete: SetNull)
   forks      Conversation[] @relation("ConversationForks")
+}
+
+model ConversationTopic {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  position       Int
+  title          String
+  description    String
+  createdAt      DateTime @default(now())
+
+  @@unique([conversationId, position])
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
 model Message {
@@ -48,18 +59,4 @@ model Message {
   @@index([conversationId])
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  topic        Topic?
-}
-
-model Topic {
-  id             Int      @id @default(autoincrement())
-  conversationId Int
-  messageId      Int      @unique
-  title          String
-  createdAt      DateTime @default(now())
-
-  @@index([conversationId])
-
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }

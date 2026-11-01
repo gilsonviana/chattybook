@@ -76,7 +76,13 @@ export async function requireLocalModels(names: string[], signal?: AbortSignal) 
   }
 }
 
-export async function generateChatResponse(model: string, messages: Message[], maxTokens: number, signal?: AbortSignal): Promise<string> {
+export interface ChatGenerationOptions {
+  temperature?: number
+  // JSON schema for Ollama structured output.
+  format?: object
+}
+
+export async function generateChatResponse(model: string, messages: Message[], maxTokens: number, signal?: AbortSignal, options: ChatGenerationOptions = {}): Promise<string> {
   try {
     signal?.throwIfAborted()
     const response = await client(300000, signal).chat({
@@ -85,7 +91,8 @@ export async function generateChatResponse(model: string, messages: Message[], m
       stream: false,
       // GPT-OSS requires a thinking level rather than a boolean.
       think: model.startsWith('gpt-oss') ? 'low' : false,
-      options: { num_predict: maxTokens },
+      ...(options.format ? { format: options.format } : {}),
+      options: { num_predict: maxTokens, ...(options.temperature === undefined ? {} : { temperature: options.temperature }) },
     })
     const content = response.message?.content?.trim()
     if (!content) {

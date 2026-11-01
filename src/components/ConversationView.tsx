@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { requestJson } from '../../lib/client'
-import type { Conversation, Message, Topic } from '../../lib/types'
+import type { Conversation, Message } from '../../lib/types'
 import { ChatWindow } from './ChatWindow'
+import { ConversationPlan } from './ConversationPlan'
 import { ConversationSummary } from './ConversationSummary'
-import { TopicSidebar } from './TopicSidebar'
 
 type DialogueUpdate = Pick<Conversation, 'messages' | 'status'>
 
@@ -43,77 +43,19 @@ export function ConversationView({ id }: { id: string }) {
   const autoFollow = useRef(true)
   const programmaticScroll = useRef(false)
   const [scrollControls, setScrollControls] = useState({ top: false, bottom: false })
-  const [topics, setTopics] = useState<Topic[]>([])
-  const [topicModel, setTopicModel] = useState('')
-  const [selectedTopicModel, setSelectedTopicModel] = useState('')
-  const [refreshingTopicModel, setRefreshingTopicModel] = useState<string | null>(null)
-  const [topicsUpdating, setTopicsUpdating] = useState(false)
-  const [topicError, setTopicError] = useState('')
-  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null)
-  const topicModelRef = useRef('')
-  const topicRequest = useRef<{ running: boolean; again: boolean; resetModel: string | null }>({ running: false, again: false, resetModel: null })
-  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const hasConversation = conversation !== null
 
   const loadConversation = useCallback(async () => {
     const active = await requestJson<Conversation>(`/api/conversation/${id}`)
     setConversation(active)
     setMessages(active.messages)
-    setTopics(active.topics)
-    if (!topicModelRef.current) {
-      topicModelRef.current = active.topicModel ?? active.model1
-      setTopicModel(topicModelRef.current)
-      setSelectedTopicModel(topicModelRef.current)
-    }
     return active
   }, [id])
 
-  const requestTopics = useCallback(async (resetModel?: string) => {
-    const queue = topicRequest.current
-    if (resetModel) queue.resetModel = resetModel
-    if (queue.running) {
-      queue.again = true
-      return
-    }
-    queue.running = true
-    setTopicsUpdating(true)
-    try {
-      do {
-        queue.again = false
-        const reset = queue.resetModel
-        queue.resetModel = null
-        if (reset) {
-          setTopics([])
-          setRefreshingTopicModel(reset)
-        }
-        try {
-          const result = await requestJson<{ topics: Topic[]; topicModel: string }>(`/api/conversation/${id}/topics`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(reset ? { model: reset, reset: true } : { model: topicModelRef.current }),
-          })
-          topicModelRef.current = result.topicModel
-          setTopicModel(result.topicModel)
-          setTopics(result.topics)
-          setTopicError('')
-        } catch (topicsError) {
-          setTopicError(topicsError instanceof Error ? topicsError.message : 'Could not identify the topic.')
-        } finally {
-          if (reset) setRefreshingTopicModel(null)
-        }
-      } while (queue.again || queue.resetModel)
-    } finally {
-      queue.running = false
-      setTopicsUpdating(false)
-    }
-  }, [id])
-
-  const applyDialogueUpdate = useCallback((mode: Conversation['mode'], updated: DialogueUpdate) => {
+  const applyDialogueUpdate = useCallback((updated: DialogueUpdate) => {
     setConversation(current => current ? { ...current, ...updated } : current)
     setMessages(updated.messages)
-    // Q&A topics follow each Agent 1 question; discussions follow each full turn.
-    if (updated.messages.at(-1)?.speaker === (mode === 'qa' ? 'agent1' : 'agent2')) void requestTopics()
-  }, [requestTopics])
+  }, [])
 
   function scrollToPosition(top: number) {
     const destination = Math.max(0, Math.min(top, document.documentElement.scrollHeight - window.innerHeight))
@@ -129,19 +71,6 @@ export function ConversationView({ id }: { id: string }) {
     autoFollow.current = true
     scrollToPosition(window.scrollY + chatEnd.current.getBoundingClientRect().bottom - window.innerHeight)
   }
-
-  function goToMessage(messageId: number) {
-    const target = document.getElementById(`message-${messageId}`)
-    if (!target) return
-    autoFollow.current = false
-    scrollToPosition(window.scrollY + target.getBoundingClientRect().top - 16)
-    target.focus({ preventScroll: true })
-    clearTimeout(highlightTimer.current)
-    setHighlightedMessageId(messageId)
-    highlightTimer.current = setTimeout(() => setHighlightedMessageId(null), 1600)
-  }
-
-  useEffect(() => () => clearTimeout(highlightTimer.current), [])
 
   const followLatest = useEffectEvent(() => {
     if (autoFollow.current) jumpToLatest()
@@ -263,7 +192,7 @@ export function ConversationView({ id }: { id: string }) {
           busy.current = true
           setIsLoading(true)
           try {
-            await generateDialogue(active, updated => applyDialogueUpdate(active.mode, updated), () => stopRequested.current)
+            await generateDialogue(active, applyDialogueUpdate, () => stopRequested.current)
           } catch (generationError) {
             if (!stopRequested.current) {
               setError(generationError instanceof Error ? generationError.message : 'Could not continue the dialogue.')
@@ -300,7 +229,7 @@ export function ConversationView({ id }: { id: string }) {
         : active
       if (stopRequested.current) return
       if (resumed.status === 'completed') return
-      await generateDialogue(resumed, updated => applyDialogueUpdate(resumed.mode, updated), () => stopRequested.current)
+      await generateDialogue(resumed, applyDialogueUpdate, () => stopRequested.current)
     } catch (retryError) {
       if (!stopRequested.current) {
         setError(retryError instanceof Error ? retryError.message : 'Could not continue the dialogue.')
@@ -357,78 +286,64 @@ export function ConversationView({ id }: { id: string }) {
       {error && <div className="error" role="alert">{error}</div>}
       {error && !conversation && <Link href="/">Back to conversations</Link>}
       {conversation && (
-        <div className="conversation-layout">
-          <TopicSidebar
-            topics={topics}
+        <>
+          {conversation.topics.length > 0 && (
+            <ConversationPlan topics={conversation.topics} messageCount={messages.length} status={conversation.status} />
+          )}
+          <ChatWindow
+            title={conversation.title ?? conversation.subject}
             messages={messages}
-            model={selectedTopicModel}
-            appliedModel={topicModel}
-            refreshingModel={refreshingTopicModel}
-            defaultModel={conversation.model1}
-            isUpdating={topicsUpdating}
-            isGenerating={isLoading || conversation.status !== 'completed'}
-            error={topicError}
-            onModelChange={setSelectedTopicModel}
-            onRefresh={() => void requestTopics(selectedTopicModel)}
-            onKeepCurrent={() => setSelectedTopicModel(topicModel)}
-            onSelect={goToMessage}
+            topics={conversation.topics}
+            isLoading={isLoading}
+            totalTurns={conversation.totalTurns}
+            persona1={conversation.persona1}
+            persona2={conversation.persona2}
+            model1={conversation.model1}
+            model2={conversation.model2}
+            devilsAdvocate={conversation.devilsAdvocate}
+            forkedFromId={conversation.forkedFromId}
+            forkSummary={conversation.forkSummary}
+            forkCount={conversation.forks.length}
+            endRef={chatEnd}
           />
-          <div className="conversation-main">
-            <ChatWindow
-              title={conversation.title ?? conversation.subject}
-              messages={messages}
-              isLoading={isLoading}
-              totalTurns={conversation.totalTurns}
-              persona1={conversation.persona1}
-              persona2={conversation.persona2}
-              model1={conversation.model1}
-              model2={conversation.model2}
-              devilsAdvocate={conversation.devilsAdvocate}
-              forkedFromId={conversation.forkedFromId}
-              forkSummary={conversation.forkSummary}
-              forkCount={conversation.forks.length}
-              endRef={chatEnd}
-              highlightedMessageId={highlightedMessageId}
-            />
-            {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
-              <div className="actions">
-                <button
-                  type="button"
-                  onClick={() => void (!isLoading && conversation.status === 'generating' ? retryConversation() : stopConversation())}
-                  disabled={isStopping}
-                >
-                  {isStopping ? 'Stopping...' : !isLoading && conversation.status === 'generating' ? 'Resume' : 'Stop'}
-                </button>
-              </div>
-            )}
-            {!isLoading && !isStopping && conversation.status === 'active' && (
-              <div className="actions">
-                <button onClick={() => void retryConversation()}>Retry / continue dialogue</button>
-              </div>
-            )}
-            {conversation.forks.length > 0 && (
-              <nav id="conversation-forks" className="fork-continuation panel" aria-labelledby="fork-continuation-heading">
-                <h2 id="fork-continuation-heading">Continue reading</h2>
-                <p className="muted">
-                  This dialogue was forked into {conversation.forks.length === 1 ? 'another conversation' : `${conversation.forks.length} conversations`} that continue the subject without repeating its key points.
-                </p>
-                <ul>
-                  {conversation.forks.map(fork => (
-                    <li key={fork.id}>
-                      <Link href={`/conversation/${fork.id}`}>
-                        <span>{fork.title ?? fork.subject}</span>
-                        <span className="fork-continuation-meta">
-                          {new Date(fork.createdAt).toLocaleDateString()}{fork.status === 'completed' ? '' : ' · In progress'}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </nav>
-            )}
-            <ConversationSummary key={conversation.id} conversation={conversation} disabled={isLoading || isStopping} />
-          </div>
-        </div>
+          {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => void (!isLoading && conversation.status === 'generating' ? retryConversation() : stopConversation())}
+                disabled={isStopping}
+              >
+                {isStopping ? 'Stopping...' : !isLoading && conversation.status === 'generating' ? 'Resume' : 'Stop'}
+              </button>
+            </div>
+          )}
+          {!isLoading && !isStopping && conversation.status === 'active' && (
+            <div className="actions">
+              <button onClick={() => void retryConversation()}>Retry / continue dialogue</button>
+            </div>
+          )}
+          {conversation.forks.length > 0 && (
+            <nav id="conversation-forks" className="fork-continuation panel" aria-labelledby="fork-continuation-heading">
+              <h2 id="fork-continuation-heading">Continue reading</h2>
+              <p className="muted">
+                This dialogue was forked into {conversation.forks.length === 1 ? 'another conversation' : `${conversation.forks.length} conversations`} that continue the subject without repeating its key points.
+              </p>
+              <ul>
+                {conversation.forks.map(fork => (
+                  <li key={fork.id}>
+                    <Link href={`/conversation/${fork.id}`}>
+                      <span>{fork.title ?? fork.subject}</span>
+                      <span className="fork-continuation-meta">
+                        {new Date(fork.createdAt).toLocaleDateString()}{fork.status === 'completed' ? '' : ' · In progress'}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
+          <ConversationSummary key={conversation.id} conversation={conversation} disabled={isLoading || isStopping} />
+        </>
       )}
       {conversation && (scrollControls.top || scrollControls.bottom) && (
         <nav className="conversation-scroll" aria-label="Conversation navigation">

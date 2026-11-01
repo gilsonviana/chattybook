@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { EllipsisVertical } from 'lucide-react'
 import { AgentSelector } from '@/components/AgentSelector'
-import { getOllamaModels, requestJson } from '../../lib/client'
+import { getOllamaModels, readPlanDraft, requestJson, savePlanDraft } from '../../lib/client'
 import { isConversationMode, type ConversationMode } from '../../lib/conversation-mode'
 import { isPersona, type Persona } from '../../lib/personas'
 import { isResponseLength, resolveResponseLength, type ResponseLength } from '../../lib/response-length'
@@ -94,12 +94,29 @@ export default function Home() {
         const restoredMode = isConversationMode(settings.mode) ? settings.mode : 'qa'
         setMode(restoredMode)
         if (isResponseLength(settings.responseLength)) setResponseLength(resolveResponseLength(restoredMode, settings.responseLength))
-        if (typeof settings.devilsAdvocate === 'boolean') setDevilsAdvocate(settings.devilsAdvocate)
+        if (restoredMode === 'discussion' && typeof settings.devilsAdvocate === 'boolean') setDevilsAdvocate(settings.devilsAdvocate)
       } catch {
         return
       }
     }
     restoreSettings()
+    // Returning from the planner restores the exact draft, including subject and fork source.
+    function restoreDraft() {
+      const draft = readPlanDraft()
+      if (!draft) return
+      const { config } = draft
+      setSubject(config.subject)
+      setTurns(config.totalTurns)
+      setModel1(config.model1)
+      setModel2(config.model2)
+      setPersona1(config.persona1)
+      setPersona2(config.persona2)
+      setMode(config.mode)
+      setResponseLength(resolveResponseLength(config.mode, config.responseLength))
+      setDevilsAdvocate(config.mode === 'discussion' && config.devilsAdvocate)
+      setForkSource(draft.forkSource)
+    }
+    restoreDraft()
     const forkId = Number(window.sessionStorage.getItem('chattybook:fork'))
     window.sessionStorage.removeItem('chattybook:fork')
     void refreshOllama().then(available => {
@@ -140,21 +157,18 @@ export default function Home() {
     renameInput.current?.select()
   }, [renameTarget])
 
-  async function startConversation() {
+  function startConversation() {
     if (forkingConversationId !== null || !subject.trim() || !model1 || !model2 || !validTurns || !health?.running) return
     setIsLoading(true)
     setError('')
     try {
-      const active = await requestJson<Conversation>('/api/conversation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, model1, model2, persona1, persona2, mode, responseLength, totalTurns: turns, devilsAdvocate, forkedFromId: forkSource?.id ?? null }),
+      savePlanDraft({
+        config: { subject: subject.trim(), model1, model2, persona1, persona2, mode, responseLength, totalTurns: turns, devilsAdvocate: devilsAdvocate && mode === 'discussion', forkedFromId: forkSource?.id ?? null },
+        forkSource,
       })
-      window.sessionStorage.setItem('chattybook:new-conversation', String(active.id))
-      router.push(`/conversation/${active.id}`)
+      router.push('/plan')
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Could not start the dialogue.')
-    } finally {
+      setError(error instanceof Error ? error.message : 'Could not open the subject planner.')
       setIsLoading(false)
     }
   }
@@ -176,7 +190,7 @@ export default function Home() {
       setPersona2(isPersona(saved.persona2) ? saved.persona2 : 'None')
       setMode(saved.mode)
       setResponseLength(resolveResponseLength(saved.mode, saved.responseLength))
-      setDevilsAdvocate(saved.devilsAdvocate)
+      setDevilsAdvocate(saved.mode === 'discussion' && saved.devilsAdvocate)
       setForkSource({ id: saved.id, subject: saved.subject, title: saved.title })
       setError('')
       subjectInput.current?.focus()
@@ -264,10 +278,10 @@ export default function Home() {
       )}
 
       <div className="home-layout" ref={homeLayoutRef}>
-        <form ref={setupFormRef} className="panel setup" onSubmit={event => { event.preventDefault(); void startConversation() }}>
+        <form ref={setupFormRef} className="panel setup" onSubmit={event => { event.preventDefault(); startConversation() }}>
           {forkSource && (
             <div className="fork-banner" role="status">
-              <p>Forking <strong>{displayTitle(forkSource)}</strong>. Adjust the models and settings, then start. Agent 1&apos;s model first summarizes its key points so the new dialogue avoids repeating them.</p>
+              <p>Forking <strong>{displayTitle(forkSource)}</strong>. Adjust the models and settings, then plan the topics. Agent 1&apos;s model first summarizes its key points so the new dialogue avoids repeating them.</p>
               <button type="button" className="secondary" onClick={() => setForkSource(null)} disabled={isLoading}>Clear</button>
             </div>
           )}
@@ -292,6 +306,7 @@ export default function Home() {
                   const nextMode = mode === 'qa' ? 'discussion' : 'qa'
                   setMode(nextMode)
                   setResponseLength(current => resolveResponseLength(nextMode, current))
+                  if (nextMode === 'qa') setDevilsAdvocate(false)
                 }}
                 disabled={isLoading}
               >
@@ -303,14 +318,14 @@ export default function Home() {
                 type="button"
                 className="mode-toggle"
                 role="switch"
-                aria-checked={devilsAdvocate}
-                title="Agent 1 questions Agent 2's responses and tries to refute them."
+                aria-checked={devilsAdvocate && mode !== 'qa'}
+                title={mode === 'qa' ? "Devil's advocate is not available in Q&A mode." : "Agent 1 questions Agent 2's responses and tries to refute them."}
                 onClick={() => setDevilsAdvocate(current => !current)}
-                disabled={isLoading}
+                disabled={isLoading || mode === 'qa'}
               >
                 <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
                 <span>Devil&apos;s advocate</span>
-                <span className="mode-toggle-state" aria-hidden="true">{devilsAdvocate ? 'On' : 'Off'}</span>
+                <span className="mode-toggle-state" aria-hidden="true">{devilsAdvocate && mode !== 'qa' ? 'On' : 'Off'}</span>
               </button>
             </div>
             <div className="length-turns">
@@ -331,7 +346,7 @@ export default function Home() {
           </fieldset>
           <div className="setup-actions">
             <button type="submit" disabled={isLoading || forkingConversationId !== null || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
-              {isLoading ? forkSource ? 'Summarizing...' : 'Starting...' : 'Start'}
+              {isLoading ? 'Opening...' : 'Plan topics'}
             </button>
           </div>
         </form>

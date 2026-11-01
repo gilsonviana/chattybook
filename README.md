@@ -33,8 +33,8 @@ response from each agent: **10 generated responses** in total.
    ```
 5. Open [localhost:3000](http://localhost:3000). Confirm the Ollama connection and
    available models, enter a subject, choose a model and persona for each agent,
-   optionally enable Q&A mode and choose a response length, then select **Start
-   dialogue**. Personas can be set independently to None, Student, Professor,
+   optionally enable Q&A mode and choose a response length, then select **Plan
+   topics**. Personas can be set independently to None, Student, Professor,
    Pastor, Politician, or Historian. Each provides a distinct role-appropriate
    voice and subject lens. Response length applies to both agents.
    Short prompts require exactly one paragraph with at most 25 words; Medium
@@ -50,6 +50,24 @@ response from each agent: **10 generated responses** in total.
    Agent 2's claims and tries to refute them; in Q&A mode its questions challenge a
    specific claim or assumption in Agent 2's latest answer (still one question per
    turn). Agent 2's instructions are unchanged.
+6. On the **Subject planner** page, Agent 1's model drafts one ordered topic per
+   turn (in batches of up to 15), progressing from foundations toward trade-offs
+   and open questions. Review it, then choose **Confirm & Start**, **Regenerate**
+   (asks for a fresh set that does not rephrase the current one; a failure keeps
+   the current draft), or **Back** (returns to the setup form with every setting,
+   including the subject, intact). Drafts are not saved; the plan is stored only
+   when the conversation is created. Malformed, short, or overlapping drafts are
+   repaired at most twice per batch within a three-minute budget per batch.
+
+During a planned dialogue, turn N focuses on topic N. The conversation page shows
+the plan with covered, current, and upcoming topics, computed from saved messages,
+so failed, cancelled, or interrupted turns never advance it. Agent 1 sees the
+current topic, covered topics, and the next topic; in discussion mode both agents
+stay on the current topic and build on earlier arguments. Agent 1's Q&A questions
+are also rejected when their content words (ignoring subject and topic words)
+largely match an earlier question; after three rejected drafts the turn fails
+with 502 and can be retried. Conversations created before planning existed have no
+plan and keep their original prompts.
 
 Each answer appears when generation finishes. The first request can
 take longer while Ollama loads model weights. Existing answers stay visible while
@@ -60,7 +78,7 @@ restores its messages without starting generation; select **Retry / continue
 dialogue** to resume it.
 **Fork** (on the conversation page or in a history item's menu) copies a
 conversation's subject and settings into the setup form so you can change models
-or settings before starting. When you start, the new Agent 1 model summarizes the
+or settings before starting. When you plan topics, the new Agent 1 model summarizes the
 source dialogue into at most 10 key points (long transcripts are summarized in
 chunks of about 8,000 characters, each folded into the running summary, so no
 request contains the whole transcript). Both agents receive these key points with
@@ -100,7 +118,13 @@ that the sentence contains only one independently answerable request.
 - `GET /api/ollama/models`: `{ models: string[] }` containing installed local model
   names, or `{ models: [], error }` (503). An empty successful list means no models
   are installed. Use **Refresh models** after installing a model or starting Ollama.
-- `POST /api/conversation`: `{ subject, model1, model2, persona1?, persona2?, mode?, responseLength?, totalTurns?, devilsAdvocate?, forkedFromId? }`.
+- `POST /api/plan`: same body as `POST /api/conversation`, plus optional
+   `previousTopics` (titles to avoid when regenerating) and `forkSummary` (reuses
+   the summary returned by an earlier plan for the same fork). Returns
+   `{ topics: [{ title, description }], forkSummary }` without saving anything.
+- `POST /api/conversation`: `{ subject, model1, model2, persona1?, persona2?, mode?, responseLength?, totalTurns?, devilsAdvocate?, forkedFromId?, topics?, forkSummary? }`.
+   `topics` must contain exactly `totalTurns` distinct `{ title, description }`
+   entries; omitting it creates an unplanned conversation.
    `devilsAdvocate` is a boolean (default `false`). `forkedFromId` is the ID of an
    existing conversation or `null` (the default); a missing source returns 404.
    Forking generates the summary with `model1` (512-token ceiling per request)
@@ -136,7 +160,8 @@ that the sentence contains only one independently answerable request.
    title, `devilsAdvocate`, nullable `forkedFromId`, nullable `forkSummary`, nullable
    `summary` and `summaryModel`,
    `forks` (`{ id, subject, title, status, createdAt }` for each conversation
-   forked from it, oldest first), and ordered messages.
+   forked from it, oldest first), `topics` (`{ position, title, description }`,
+   empty for unplanned conversations), and ordered messages.
 
 If Ollama is unavailable, start it locally. If no models appear, run `ollama list`
 and install a chat-capable model. Model, connection, and database errors are
@@ -162,12 +187,5 @@ during drafting and repairs, and the real three-minute aggregate deadline
 (so the suite takes over three minutes).
 The fixture does not download models or touch your conversation database.
 
-The development migration history uses a single initial schema. Databases with
-older migration history must be reset before applying it; this deletes all data:
-
-```sh
-npx prisma migrate reset --force --skip-seed
-```
-
-Stop application servers before resetting, then restart them after regenerating
-the Prisma client. This reset procedure is for disposable development data only.
+After pulling schema changes, run `npm run db:setup` and restart running servers so
+they load the regenerated Prisma client.

@@ -17,13 +17,18 @@ export interface Conversation {
   forkSummary: string | null
   summary: string | null
   summaryModel: string | null
-  topicModel: string | null
-  topics: Topic[]
   forks: ConversationFork[]
+  topics: ConversationTopic[]
   status: string
   createdAt: string
   updatedAt: string
   messages: Message[]
+}
+
+export interface ConversationTopic {
+  position: number
+  title: string
+  description: string
 }
 
 export type ConversationFork = Pick<Conversation, 'id' | 'subject' | 'title' | 'status' | 'createdAt'>
@@ -49,14 +54,6 @@ export interface Message {
   role: string
   content: string
   turnNumber: number
-  createdAt: string
-}
-
-export interface Topic {
-  id: number
-  conversationId: number
-  messageId: number
-  title: string
   createdAt: string
 }
 

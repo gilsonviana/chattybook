@@ -16,8 +16,18 @@ let mode = 'online'
 let database
 let chatBarrier
 let chatReplies = []
+let planReplies = []
 const calls = []
+const planCalls = []
 const localModels = ['first:local', 'second:local']
+const questionWords = ['soil', 'water', 'zoning', 'volunteers', 'harvests', 'compost', 'pollinators', 'rooftops', 'schools', 'markets', 'insurance', 'lighting', 'fencing', 'seeds', 'tools', 'weather', 'pests', 'shade', 'irrigation', 'permits']
+
+function fixtureTopics(count, start) {
+  return Array.from({ length: count }, (_, index) => ({
+    title: `Theme t${start + index}a`,
+    description: `Covers d${start + index}b and d${start + index}c with e${start + index}f evidence.`,
+  }))
+}
 
 async function listen(server) {
   server.listen(0, '127.0.0.1')
@@ -81,6 +91,19 @@ before(async () => {
       response.end(JSON.stringify(body.model === 'disguised:local'
         ? { remote_model: 'remote', remote_host: 'https://example.invalid' }
         : { capabilities: ['completion'] }))
+    } else if (request.url === '/api/chat' && body.format) {
+      planCalls.push(body)
+      const scripted = planReplies.shift()
+      await new Promise(resolve => setTimeout(resolve, 20))
+      if (scripted?.status) {
+        response.writeHead(scripted.status).end(JSON.stringify({ error: 'Scripted planner failure' }))
+        return
+      }
+      const range = body.messages.at(-1).content.match(/exactly (\d+) topics for positions (\d+) to/)
+      response.end(JSON.stringify({
+        message: { role: 'assistant', content: scripted?.content ?? JSON.stringify({ topics: fixtureTopics(Number(range?.[1] ?? 1), Number(range?.[2] ?? 1)) }) },
+        done: true,
+      }))
     } else if (request.url === '/api/chat') {
       calls.push(body)
       const scripted = chatReplies.shift()
@@ -110,10 +133,8 @@ before(async () => {
         'trailing-answer': 'How can gardens help cities? They provide food.',
       }
       response.end(JSON.stringify({
-        message: { role: 'assistant', content: scripted?.content ?? (mode === 'empty' ? '' : body.messages[0].content.includes('You are the topic agent')
-          ? 'NEW: Funding Urban Gardens'
-          : body.messages[0].content.includes('Q&A mode is active')
-          ? qaReplies[mode] ?? 'How can cities support urban gardens?'
+        message: { role: 'assistant', content: scripted?.content ?? (mode === 'empty' ? '' : body.messages[0].content.includes('Q&A mode is active')
+          ? qaReplies[mode] ?? `How does ${questionWords[calls.length % questionWords.length]} shape this?`
           : `A real fixture answer from ${body.model}, response ${calls.length}.`) },
         done: true,
       }))
@@ -456,16 +477,11 @@ test("devil's advocate mode persists and makes only Agent 1 challenge Agent 2", 
   const summary = (await api('/api/conversation')).data.find(({ id }) => id === created.data.id)
   assert.equal(summary.devilsAdvocate, true)
 
-  const qa = await createConversation({ totalTurns: 2, mode: 'qa', devilsAdvocate: true })
-  calls.length = 0
-  for (let index = 0; index < 3; index++) {
-    assert.equal((await api('/api/chat', { conversationId: qa.data.id, expectedMessageCount: index })).status, 200)
-  }
-  const drafts = calls
-  assert.match(drafts[0].messages[0].content, /skeptical, challenging a common assumption/)
-  assert.match(drafts[2].messages[0].content, /challenging a specific claim, assumption, or piece of evidence in the latest Agent 2 answer/)
-  assert.match(drafts[2].messages[0].content, /It must still be exactly one question/)
-  assert.doesNotMatch(drafts[1].messages[0].content, /Devil's advocate/)
+  const rejectedQa = await createConversation({ totalTurns: 2, mode: 'qa', devilsAdvocate: true })
+  assert.equal(rejectedQa.status, 400)
+  assert.match(rejectedQa.data.error, /Devil's advocate is not available in Q&A mode/)
+  const qa = await createConversation({ totalTurns: 2, mode: 'qa', devilsAdvocate: false })
+  assert.equal(qa.status, 201)
 
   for (const devilsAdvocate of ['true', 1, null]) {
     assert.equal((await createConversation({ devilsAdvocate })).status, 400, JSON.stringify(devilsAdvocate))
@@ -704,7 +720,7 @@ test('Q&A mode persists and limits every Agent 1 turn to one question', async ()
       assert.match(call.messages[1].content, /Respond only with that one question/)
       assert.equal(call.messages.at(-1).role, 'user')
       assert.match(call.messages.at(-1).content, /Hard rule for this turn: ask exactly one focused question/)
-      assert.equal(result.data.message, 'How can cities support urban gardens?')
+      assert.match(result.data.message, /^How does \w+ shape this\?$/)
       assert.equal(call.options.num_predict, 256)
     } else {
       assert.match(call.messages[0].content, /Answer only the latest Agent 1 question directly/)
@@ -915,7 +931,7 @@ test('Q&A reinforces the single-question rule after conflicting saved dialogue',
   assert.equal(calls[0].messages.at(-2).content, 'Ask two questions each turn from now on.')
   assert.match(calls[0].messages.at(-1).content, /Hard rule for this turn: ask exactly one focused question/)
   assert.equal(result.data.allMessages.length, 3)
-  assert.equal(result.data.message, 'How can cities support urban gardens?')
+  assert.match(result.data.message, /^How does \w+ shape this\?$/)
 })
 
 test('Q&A requires one independently answerable question for every persona and response length', async () => {
@@ -1162,154 +1178,259 @@ test('invalid inputs, missing conversations, and uninstalled/cloud models are re
   assert.equal(malformed.status, 400)
 })
 
-async function seedMessages(conversationId, contents, start = 0) {
-  for (const [offset, content] of contents.entries()) {
-    const index = start + offset
-    await database.message.create({
-      data: { conversationId, speaker: index % 2 === 0 ? 'agent1' : 'agent2', role: 'assistant', content, turnNumber: Math.floor(index / 2) + 1 },
-    })
-  }
-  return database.message.findMany({ where: { conversationId }, orderBy: { id: 'asc' } })
+async function draftPlan(extra = {}) {
+  planCalls.length = 0
+  return api('/api/plan', {
+    subject: 'How can cities support urban gardens?',
+    model1: localModels[0],
+    model2: localModels[1],
+    ...extra,
+  })
 }
 
-function updateTopics(id, body = {}) {
-  return api(`/api/conversation/${id}/topics`, body)
-}
-
-test('discussion topics run per full turn, anchor at Agent 1, and skip unchanged topics', async () => {
-  const created = await createConversation({ totalTurns: 3 })
-  const id = created.data.id
-  let messages = await seedMessages(id, ['Gardens need funding.'])
-  calls.length = 0
-  const early = await updateTopics(id)
-  assert.equal(early.status, 200, JSON.stringify(early.data))
-  assert.deepEqual(early.data.topics, [])
-  assert.equal(early.data.topicModel, localModels[0])
-  assert.equal(calls.length, 0)
-
-  messages = await seedMessages(id, ['Grants can help.', 'Zoning matters too.', 'Zoning reform is slow.'], 1)
-  assert.deepEqual(messages.map(message => message.speaker), ['agent1', 'agent2', 'agent1', 'agent2'])
-
-  chatReplies = [{ content: 'NEW: "Funding Urban Gardens".' }, { content: 'SAME' }]
-  const result = await updateTopics(id)
-  assert.equal(result.status, 200, JSON.stringify(result.data))
-  assert.equal(calls.length, 2)
-  assert.deepEqual(result.data.topics.map(topic => [topic.title, topic.messageId]), [['Funding Urban Gardens', messages[0].id]])
-  assert.match(calls[0].messages[0].content, /You are the topic agent/)
-  assert.match(calls[0].messages[0].content, /Output exactly NEW:/)
-  assert.match(calls[1].messages[0].content, /output exactly SAME/)
-  assert.equal(JSON.parse(calls[1].messages[1].content).currentTopic, 'Funding Urban Gardens')
-  assert.match(JSON.parse(calls[1].messages[1].content).newestMessages, /Zoning matters too\.\n\nAgent 2: Zoning reform is slow\./)
-
-  calls.length = 0
-  assert.equal((await updateTopics(id)).data.topics.length, 1)
-  assert.equal(calls.length, 0)
-
-  const saved = await api(`/api/conversation/${id}`)
-  assert.deepEqual(saved.data.topics.map(topic => topic.title), ['Funding Urban Gardens'])
-  assert.equal(saved.data.topicModel, localModels[0])
-})
-
-test('Q&A topics run after each Agent 1 question and anchor at the question', async () => {
-  const created = await createConversation({ totalTurns: 3, mode: 'qa' })
-  const id = created.data.id
-  const messages = await seedMessages(id, ['How do gardens reduce flooding?', 'They absorb rain.', 'Who pays for rain gardens?'])
-  calls.length = 0
-  chatReplies = [{ content: 'NEW: Flood Control' }, { content: 'NEW: Paying for Rain Gardens' }]
-  const result = await updateTopics(id, { model: localModels[1] })
-  assert.equal(result.status, 200, JSON.stringify(result.data))
-  assert.equal(calls.length, 2)
-  assert.ok(calls.every(call => call.model === localModels[1]))
-  assert.deepEqual(result.data.topics.map(topic => [topic.title, topic.messageId]), [
-    ['Flood Control', messages[0].id],
-    ['Paying for Rain Gardens', messages[2].id],
-  ])
-  assert.match(JSON.parse(calls[1].messages[1].content).newestMessages, /Agent 2: They absorb rain\.\n\nAgent 1: Who pays/)
-  assert.equal((await api(`/api/conversation/${id}`)).data.topicModel, localModels[1])
-})
-
-test('invalid topic replies and model failures do not advance topic progress', async () => {
-  const created = await createConversation({ totalTurns: 2 })
-  const id = created.data.id
-  await seedMessages(id, ['Gardens need funding.', 'Grants can help.'])
-  for (const replies of [[{ content: 'SAME' }, { content: 'SAME' }], [{ content: `NEW: ${'x'.repeat(81)}` }, { content: 'SAME' }], [{ status: 500 }]]) {
-    chatReplies = [...replies]
-    calls.length = 0
-    const failed = await updateTopics(id)
-    assert.ok(failed.status >= 500, JSON.stringify(failed.data))
-    assert.equal(calls.length, replies.length)
-    assert.equal((await database.conversation.findUnique({ where: { id } })).topicsThroughMessageId, null)
+test('topic plans have one ordered topic per turn, use batches, and are never persisted as drafts', async () => {
+  const before = await database.conversation.count()
+  for (const totalTurns of [1, 5, 25]) {
+    const result = await draftPlan({ totalTurns, mode: 'qa', persona1: 'Student' })
+    assert.equal(result.status, 200, JSON.stringify(result.data))
+    assert.deepEqual(result.data.topics, fixtureTopics(totalTurns, 1))
+    assert.equal(result.data.forkSummary, null)
+    assert.equal(planCalls.length, Math.ceil(totalTurns / 15))
+    const [first] = planCalls
+    assert.equal(first.model, localModels[0])
+    assert.equal(first.options.temperature, 0.7)
+    assert.ok(first.format.properties.topics)
+    assert.match(first.messages[0].content, /Plan only; do not write dialogue/)
+    assert.match(first.messages[0].content, /urban gardens/)
+    assert.match(first.messages[0].content, /one focused question/)
+    assert.match(first.messages[0].content, /Agent 1 speaks as a Student/)
+    assert.match(first.messages[1].content, new RegExp(`exactly ${Math.min(totalTurns, 15)} topics for positions 1 to ${Math.min(totalTurns, 15)} of ${totalTurns}`))
+    if (totalTurns === 25) {
+      assert.match(planCalls[1].messages[1].content, /exactly 10 topics for positions 16 to 25 of 25/)
+      assert.ok(planCalls[1].messages[1].content.includes(JSON.stringify(fixtureTopics(15, 1).map(topic => topic.title))))
+    }
   }
-  chatReplies = [{ content: 'Funding Gardens' }]
-  assert.deepEqual((await updateTopics(id)).data.topics.map(topic => topic.title), ['Funding Gardens'])
+  const discussion = await draftPlan({ totalTurns: 2, devilsAdvocate: true })
+  assert.equal(discussion.status, 200)
+  assert.match(planCalls[0].messages[0].content, /invite substantive argument/)
+  assert.match(planCalls[0].messages[0].content, /Devil's advocate mode is on/)
+  assert.equal(await database.conversation.count(), before)
+  assert.equal((await draftPlan({ totalTurns: 0 })).status, 400)
+  assert.equal((await draftPlan({ model1: 'not-installed' })).status, 400)
+  assert.equal(planCalls.length, 0)
 })
 
-test('topic replies tolerate common format drift and get one repair attempt', async () => {
-  const created = await createConversation({ totalTurns: 4 })
+test('plan generation repairs malformed, short, and overlapping drafts within bounded attempts', async () => {
+  const overlapping = JSON.stringify({ topics: [
+    { title: 'Soil health basics', description: 'Explain how healthy soil supports urban gardens.' },
+    { title: 'Soil health basics', description: 'Explain how healthy soil supports urban gardens.' },
+  ] })
+  planReplies = [{ content: 'Here are some ideas.' }, { content: overlapping }]
+  const repaired = await draftPlan({ totalTurns: 2 })
+  assert.equal(repaired.status, 200, JSON.stringify(repaired.data))
+  assert.equal(planCalls.length, 3)
+  assert.equal(planCalls[1].messages.at(-2).content, 'Here are some ideas.')
+  assert.match(planCalls[1].messages.at(-1).content, /not valid JSON/)
+  assert.match(planCalls[2].messages.at(-1).content, /Topic 2 .* overlaps topic 1/)
+
+  planReplies = [{ content: `\`\`\`json\n${JSON.stringify({ topics: fixtureTopics(1, 1) })}\n\`\`\`` }]
+  const short = await draftPlan({ totalTurns: 2 })
+  assert.equal(short.status, 200)
+  assert.equal(planCalls.length, 2)
+  assert.match(planCalls[1].messages.at(-1).content, /contained 1 topics; exactly 2 are required/)
+
+  planReplies = [{ content: JSON.stringify(fixtureTopics(4, 1)) }]
+  const extra = await draftPlan({ totalTurns: 3 })
+  assert.equal(extra.status, 200)
+  assert.deepEqual(extra.data.topics, fixtureTopics(3, 1))
+  assert.equal(planCalls.length, 1)
+
+  planReplies = [{ content: overlapping }, { content: '{}' }, { content: overlapping }]
+  const failed = await draftPlan({ totalTurns: 2 })
+  assert.equal(failed.status, 502)
+  assert.match(failed.data.error, /could not produce a valid topic plan/)
+  assert.equal(planCalls.length, 3)
+
+  planReplies = [{ status: 500 }]
+  assert.equal((await draftPlan({ totalTurns: 2 })).status, 503)
+  planReplies = []
+})
+
+test('regeneration sends the previous draft with a fresher temperature and validates its input', async () => {
+  const previousTopics = ['Soil health basics', 'Funding community plots']
+  const result = await draftPlan({ totalTurns: 2, previousTopics })
+  assert.equal(result.status, 200)
+  assert.equal(planCalls[0].options.temperature, 0.9)
+  assert.ok(planCalls[0].messages[1].content.includes(JSON.stringify(previousTopics)))
+  assert.match(planCalls[0].messages[1].content, /do not rephrase them/)
+  assert.equal((await draftPlan({ totalTurns: 2, previousTopics: 'Soil' })).status, 400)
+  assert.equal((await draftPlan({ totalTurns: 2, previousTopics: [42] })).status, 400)
+})
+
+test('confirmed plans persist in order with the conversation and invalid plans are rejected', async () => {
+  const topics = fixtureTopics(3, 1)
+  const before = await database.conversation.count()
+  for (const invalid of [fixtureTopics(2, 1), 'topics', [{ title: 'Theme t1a' }], [...fixtureTopics(2, 1), { title: 'Theme t1a', description: 'Covers d1b and d1c with e1f evidence.' }], [...fixtureTopics(2, 1), { title: '', description: 'Covers something new entirely.' }]]) {
+    const rejected = await createConversation({ totalTurns: 3, topics: invalid })
+    assert.equal(rejected.status, 400, JSON.stringify(invalid))
+  }
+  assert.equal(await database.conversation.count(), before)
+  const created = await createConversation({ totalTurns: 3, topics })
+  assert.equal(created.status, 201, JSON.stringify(created.data))
+  assert.deepEqual(created.data.topics, topics.map((topic, position) => ({ position, ...topic })))
+  const saved = await api(`/api/conversation/${created.data.id}`)
+  assert.deepEqual(saved.data.topics, created.data.topics)
+  const legacy = await createConversation({ totalTurns: 1 })
+  assert.deepEqual(legacy.data.topics, [])
+  assert.deepEqual((await api(`/api/conversation/${legacy.data.id}`)).data.topics, [])
+})
+
+test('plan-guided discussion turns follow their topic and failed turns do not advance progress', async () => {
+  const topics = fixtureTopics(3, 1)
+  const created = await createConversation({ totalTurns: 3, topics, devilsAdvocate: true })
   const id = created.data.id
-  const messages = await seedMessages(id, ['Gardens need funding.', 'Grants can help.', 'More on grants.', 'Grants again.', 'Zoning matters.', 'Zoning is slow.', 'Zoning still.', 'Yes, zoning.'])
   calls.length = 0
-  chatReplies = [
-    { content: 'SAME' },
-    { content: ' NEW TOPIC: Garden Funding \n' },
-    { content: ' SAME: Garden Funding' },
-    { content: 'CURRENT_TOPIC: Zoning Reform' },
-    { content: 'zoning reform' },
+  for (let index = 0; index < 2; index++) {
+    assert.equal((await api('/api/chat', { conversationId: id, expectedMessageCount: index })).status, 200)
+  }
+  for (const call of calls.slice(0, 2)) {
+    assert.match(call.messages[0].content, /approved topic plan/)
+    assert.ok(call.messages[0].content.includes('"topic":1,"of":3,"title":"Theme t1a"'))
+    assert.match(call.messages[0].content, /A later turn will cover "Theme t2a"; do not cover it now/)
+  }
+  assert.match(calls[0].messages[0].content, /Challenge claims relevant to the current topic/)
+
+  chatReplies = [{ status: 500 }]
+  calls.length = 0
+  assert.equal((await api('/api/chat', { conversationId: id, expectedMessageCount: 2 })).status, 503)
+  const retried = await api('/api/chat', { conversationId: id, expectedMessageCount: 2 })
+  assert.equal(retried.status, 200)
+  for (const call of calls) {
+    assert.ok(call.messages[0].content.includes('"topic":2,"of":3,"title":"Theme t2a"'))
+    assert.ok(call.messages[0].content.includes(JSON.stringify(['Theme t1a'])))
+    assert.match(call.messages[0].content, /natural transition/)
+  }
+  assert.equal(retried.data.allMessages.at(-1).turnNumber, 2)
+
+  const stopped = await fetch(`${base}/api/conversation/${id}`, { method: 'PATCH' })
+  assert.equal(stopped.status, 200)
+  const reopened = (await api(`/api/conversation/${id}`)).data
+  assert.equal(reopened.messages.length, 3)
+  assert.deepEqual(reopened.topics.map(topic => topic.title), topics.map(topic => topic.title))
+
+  const legacy = await createConversation({ totalTurns: 1 })
+  calls.length = 0
+  assert.equal((await api('/api/chat', { conversationId: legacy.data.id, expectedMessageCount: 0 })).status, 200)
+  assert.doesNotMatch(calls[0].messages[0].content, /approved topic plan/)
+})
+
+test('planned Q&A questions target the current topic and reject reworded repeats', async () => {
+  const topics = [
+    { title: 'Flood control', description: 'Establish how gardens absorb and slow stormwater runoff.' },
+    { title: 'Compost and soil building', description: 'Explore how compost changes soil structure and fertility.' },
+    { title: 'Community governance', description: 'Examine who decides how shared plots are run and maintained.' },
   ]
-  const result = await updateTopics(id)
+  const id = await prepareQaFollowUp({ topics })
+  chatReplies = [
+    { content: 'How do urban gardens reduce flooding in cities?' },
+    { content: 'How does compost improve soil structure?' },
+  ]
+  const result = await api('/api/chat', { conversationId: id, expectedMessageCount: 2 })
   assert.equal(result.status, 200, JSON.stringify(result.data))
-  assert.equal(calls.length, 5)
-  assert.match(calls[1].messages.at(-1).content, /did not follow the required format/)
-  assert.deepEqual(result.data.topics.map(topic => [topic.title, topic.messageId]), [
-    ['Garden Funding', messages[0].id],
-    ['Zoning Reform', messages[4].id],
-  ])
-})
-
-test('topic requests validate input and topics are deleted with their conversation', async () => {
-  const created = await createConversation({ totalTurns: 2 })
-  const id = created.data.id
-  assert.equal((await api('/api/conversation/invalid/topics', {})).status, 400)
-  assert.equal((await updateTopics(999999)).status, 404)
-  for (const model of ['', 5, 'not-installed', 'remote:cloud']) {
-    assert.equal((await updateTopics(id, { model })).status, 400, JSON.stringify(model))
-  }
-  await seedMessages(id, ['Gardens need funding.', 'Grants can help.'])
-  const before = await database.conversation.findUnique({ where: { id } })
-  assert.equal((await updateTopics(id)).data.topics.length, 1)
-  assert.equal((await database.conversation.findUnique({ where: { id } })).updatedAt.getTime(), before.updatedAt.getTime())
-  assert.equal((await deleteConversation(id)).status, 200)
-  assert.equal(await database.topic.count({ where: { conversationId: id } }), 0)
-})
-
-test('refreshing topics erases them and regenerates the whole conversation with the new model', async () => {
-  const created = await createConversation({ totalTurns: 2 })
-  const id = created.data.id
-  const messages = await seedMessages(id, ['Gardens need funding.', 'Grants can help.', 'Zoning matters too.', 'Zoning reform is slow.'])
-  chatReplies = [{ content: 'NEW: Funding' }, { content: 'SAME' }]
-  const original = await updateTopics(id)
-  assert.deepEqual(original.data.topics.map(topic => topic.title), ['Funding'])
-
-  for (const body of [{ reset: 'yes', model: localModels[1] }, { reset: true }, { reset: true, model: 'not-installed' }]) {
-    assert.equal((await updateTopics(id, body)).status, 400, JSON.stringify(body))
-  }
-  assert.deepEqual((await api(`/api/conversation/${id}`)).data.topics.map(topic => topic.title), ['Funding'])
-
-  const before = await database.conversation.findUnique({ where: { id } })
-  calls.length = 0
-  chatReplies = [{ content: 'NEW: Garden Grants' }, { content: 'NEW: Zoning Reform' }]
-  const refreshed = await updateTopics(id, { model: localModels[1], reset: true })
-  assert.equal(refreshed.status, 200, JSON.stringify(refreshed.data))
+  assert.equal(result.data.message, 'How does compost improve soil structure?')
   assert.equal(calls.length, 2)
-  assert.ok(calls.every(call => call.model === localModels[1]))
-  assert.equal(JSON.parse(calls[0].messages[1].content).currentTopic, null)
-  assert.equal(refreshed.data.topicModel, localModels[1])
-  assert.deepEqual(refreshed.data.topics.map(topic => [topic.title, topic.messageId]), [
-    ['Garden Grants', messages[0].id],
-    ['Zoning Reform', messages[2].id],
-  ])
-  const after = await database.conversation.findUnique({ where: { id } })
-  assert.equal(after.topicModel, localModels[1])
-  assert.equal(after.topicsThroughMessageId, messages[3].id)
-  assert.equal(after.updatedAt.getTime(), before.updatedAt.getTime())
+  assert.ok(calls[0].messages[0].content.includes('"title":"Compost and soil building"'))
+  assert.ok(calls[0].messages[0].content.includes(JSON.stringify(['Flood control'])))
+  assert.match(calls[0].messages[1].content, /current planned topic/)
+  assert.match(calls[0].messages.at(-1).content, /Ask about the current planned topic "Compost and soil building"/)
+  assert.match(calls[1].messages.at(-1).content, /repeats this earlier question: "How do urban gardens reduce flooding\?"/)
+  assert.match(calls[1].messages.at(-1).content, /attempt 2 of 3/)
+  assert.equal(calls.filter(call => call.model === localModels[1]).length, 0)
+
+  calls.length = 0
+  const answer = await api('/api/chat', { conversationId: id, expectedMessageCount: 3 })
+  assert.equal(answer.status, 200)
+  assert.doesNotMatch(calls[0].messages[0].content, /approved topic plan/)
+
+  const repeatedId = await prepareQaFollowUp({ topics })
+  chatReplies = [
+    { content: 'How do urban gardens reduce flooding?' },
+    { content: 'In what ways do urban gardens reduce flooding?' },
+    { content: 'How do gardens reduce urban flooding?' },
+  ]
+  const repeated = await api('/api/chat', { conversationId: repeatedId, expectedMessageCount: 2 })
+  assert.equal(repeated.status, 502)
+  assert.match(repeated.data.error, /kept repeating an earlier question/)
+  assert.equal(calls.length, 3)
+  const saved = (await api(`/api/conversation/${repeatedId}`)).data
+  assert.equal(saved.messages.length, 2)
+  assert.equal(saved.status, 'active')
+  chatReplies = []
+})
+
+test('fork plans steer away from inherited key points and confirmation reuses the planning summary', async () => {
+  const source = await createConversation({ totalTurns: 1 })
+  await database.message.createMany({
+    data: [
+      { conversationId: source.data.id, speaker: 'agent1', role: 'assistant', content: 'Gardens need water access.', turnNumber: 1 },
+      { conversationId: source.data.id, speaker: 'agent2', role: 'assistant', content: 'Zoning limits rooftop plots.', turnNumber: 1 },
+    ],
+  })
+  calls.length = 0
+  chatReplies = [{ content: '- Water access and rooftop zoning were covered.' }]
+  const plan = await draftPlan({ totalTurns: 2, forkedFromId: source.data.id })
+  assert.equal(plan.status, 200, JSON.stringify(plan.data))
+  assert.equal(plan.data.forkSummary, '- Water access and rooftop zoning were covered.')
+  assert.equal(calls.length, 1)
+  assert.match(planCalls[0].messages[0].content, /Water access and rooftop zoning were covered/)
+  assert.match(planCalls[0].messages[0].content, /explore fresh material/)
+
+  calls.length = 0
+  const regenerated = await draftPlan({ totalTurns: 2, forkedFromId: source.data.id, forkSummary: plan.data.forkSummary, previousTopics: plan.data.topics.map(topic => topic.title) })
+  assert.equal(regenerated.status, 200)
+  assert.equal(calls.length, 0)
+
+  const created = await createConversation({ totalTurns: 2, forkedFromId: source.data.id, topics: regenerated.data.topics, forkSummary: plan.data.forkSummary })
+  assert.equal(created.status, 201, JSON.stringify(created.data))
+  assert.equal(calls.length, 0)
+  assert.equal(created.data.forkSummary, plan.data.forkSummary)
+  assert.equal(created.data.forkedFromId, source.data.id)
+  assert.equal(created.data.topics.length, 2)
+  assert.equal((await createConversation({ totalTurns: 2, forkedFromId: 999999, topics: regenerated.data.topics, forkSummary: 'x' })).status, 404)
+  assert.equal((await createConversation({ totalTurns: 2, forkedFromId: source.data.id, forkSummary: 7 })).status, 400)
+  chatReplies = []
+})
+
+test('topic progress counts only completed turns across interruption, stopping, and completion', async () => {
+  const { transpileModule, ModuleKind, ScriptTarget } = await import('typescript')
+  const compile = async name => transpileModule(await readFile(new URL(`../lib/${name}.ts`, import.meta.url), 'utf8'), {
+    compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 },
+  }).outputText
+  const similarity = {}
+  new Function('require', 'exports', await compile('text-similarity'))(() => ({}), similarity)
+  const plan = {}
+  new Function('require', 'exports', await compile('topic-plan'))(() => similarity, plan)
+
+  assert.deepEqual(plan.getTopicProgress(3, 0, 'active'), { currentIndex: 0, coveredCount: 0, states: ['current', 'upcoming', 'upcoming'] })
+  assert.deepEqual(plan.getTopicProgress(3, 3, 'generating'), { currentIndex: 1, coveredCount: 1, states: ['covered', 'current', 'upcoming'] })
+  assert.deepEqual(plan.getTopicProgress(3, 3, 'completed'), { currentIndex: null, coveredCount: 1, states: ['covered', 'partial', 'not-reached'] })
+  assert.deepEqual(plan.getTopicProgress(3, 4, 'completed'), { currentIndex: null, coveredCount: 2, states: ['covered', 'covered', 'not-reached'] })
+  assert.deepEqual(plan.getTopicProgress(2, 4, 'completed'), { currentIndex: null, coveredCount: 2, states: ['covered', 'covered'] })
+
+  const subject = 'How can cities support urban gardens?'
+  assert.deepEqual(plan.validateTopicPlan([{ title: 'Water rights', description: 'Who controls irrigation water for plots.' }], 2, subject), ['The plan has 1 topics; exactly 2 are required.'])
+  assert.equal(plan.validateTopicPlan([
+    { title: 'Urban garden water rights', description: 'Who controls irrigation water for plots.' },
+    { title: 'Water rights for city gardens', description: 'Who controls irrigation water used by plots.' },
+  ], 2, subject).length, 1)
+  assert.deepEqual(plan.validateTopicPlan([
+    { title: 'Water rights', description: 'Who controls irrigation water for plots.' },
+    { title: 'Volunteer retention', description: 'Why community gardeners stay involved or leave.' },
+  ], 2, subject), [])
+
+  const previous = ['How do urban gardens reduce flooding?']
+  assert.equal(similarity.findRepeatedQuestion('In what ways do urban gardens reduce flooding?', previous, subject), previous[0])
+  assert.equal(similarity.findRepeatedQuestion('How do gardens reduce urban flooding in cities?', previous, subject), previous[0])
+  assert.equal(similarity.findRepeatedQuestion('How does compost improve soil structure?', previous, subject), null)
+  assert.equal(similarity.findRepeatedQuestion('How do urban gardens affect property values?', previous, subject), null)
 })
