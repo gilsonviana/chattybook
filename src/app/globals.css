@@ -136,6 +136,10 @@ h1, h2, h3, p { margin: 0; }
 .topic-sidebar h2 { font-size: 1.05rem; margin-bottom: 12px; }
 .topic-model { margin-bottom: 14px; color: var(--muted); font-size: .8rem; }
 .topic-model select { margin-top: 4px; padding: 7px 8px; font-size: .85rem; }
+.topic-refresh { display: grid; gap: 8px; margin-bottom: 14px; }
+.topic-refresh p { font-size: .8rem; line-height: 1.4; overflow-wrap: anywhere; }
+.topic-refresh-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.topic-refresh-actions button { min-height: 36px; padding: 6px 10px; border-radius: 7px; font-size: .85rem; }
 .topic-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .topic-list a { display: grid; gap: 2px; padding: 8px 10px; border-left: 3px solid transparent; border-radius: 0 8px 8px 0; color: var(--text); text-decoration: none; }
 .topic-list a:hover { border-left-color: #315cd5; background: var(--background); }

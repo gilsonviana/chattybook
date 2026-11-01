@@ -9,15 +9,19 @@ interface TopicSidebarProps {
   topics: Topic[]
   messages: Message[]
   model: string
+  appliedModel: string
+  refreshingModel: string | null
   defaultModel: string
   isUpdating: boolean
   isGenerating: boolean
   error: string
   onModelChange: (model: string) => void
+  onRefresh: () => void
+  onKeepCurrent: () => void
   onSelect: (messageId: number) => void
 }
 
-export function TopicSidebar({ topics, messages, model, defaultModel, isUpdating, isGenerating, error, onModelChange, onSelect }: TopicSidebarProps) {
+export function TopicSidebar({ topics, messages, model, appliedModel, refreshingModel, defaultModel, isUpdating, isGenerating, error, onModelChange, onRefresh, onKeepCurrent, onSelect }: TopicSidebarProps) {
   const [models, setModels] = useState<string[]>([])
   const [modelsError, setModelsError] = useState('')
   const [open, setOpen] = useState(false)
@@ -57,6 +61,15 @@ export function TopicSidebar({ topics, messages, model, defaultModel, isUpdating
             ))}
           </select>
         </label>
+        {model !== appliedModel && (
+          <div className="topic-refresh">
+            <p className="muted">Current topics were identified by {appliedModel}. Refreshing replaces them.</p>
+            <div className="topic-refresh-actions">
+              <button type="button" onClick={onRefresh} disabled={isUpdating || messages.length === 0}>Refresh topics</button>
+              <button type="button" className="secondary" onClick={onKeepCurrent}>Keep current</button>
+            </div>
+          </div>
+        )}
         {modelsError && <p className="muted">{modelsError}</p>}
         {topics.length > 0 ? (
           <nav aria-label="Conversation topics">
@@ -82,7 +95,7 @@ export function TopicSidebar({ topics, messages, model, defaultModel, isUpdating
           <p className="muted">{isGenerating ? 'Topics will appear as the agents talk.' : 'No topics were identified for this conversation.'}</p>
         )}
         <div aria-live="polite">
-          {isUpdating && <p className="muted topic-status" role="status">Identifying topic...</p>}
+          {isUpdating && <p className="muted topic-status" role="status">{refreshingModel ? `Regenerating topics with ${refreshingModel}...` : 'Identifying topic...'}</p>}
         </div>
         {error && <p className="topic-error" role="alert">{error}</p>}
       </div>

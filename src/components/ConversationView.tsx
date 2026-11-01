@@ -45,11 +45,13 @@ export function ConversationView({ id }: { id: string }) {
   const [scrollControls, setScrollControls] = useState({ top: false, bottom: false })
   const [topics, setTopics] = useState<Topic[]>([])
   const [topicModel, setTopicModel] = useState('')
+  const [selectedTopicModel, setSelectedTopicModel] = useState('')
+  const [refreshingTopicModel, setRefreshingTopicModel] = useState<string | null>(null)
   const [topicsUpdating, setTopicsUpdating] = useState(false)
   const [topicError, setTopicError] = useState('')
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null)
   const topicModelRef = useRef('')
-  const topicRequest = useRef({ running: false, again: false })
+  const topicRequest = useRef<{ running: boolean; again: boolean; resetModel: string | null }>({ running: false, again: false, resetModel: null })
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const hasConversation = conversation !== null
 
@@ -61,12 +63,14 @@ export function ConversationView({ id }: { id: string }) {
     if (!topicModelRef.current) {
       topicModelRef.current = active.topicModel ?? active.model1
       setTopicModel(topicModelRef.current)
+      setSelectedTopicModel(topicModelRef.current)
     }
     return active
   }, [id])
 
-  const requestTopics = useCallback(async () => {
+  const requestTopics = useCallback(async (resetModel?: string) => {
     const queue = topicRequest.current
+    if (resetModel) queue.resetModel = resetModel
     if (queue.running) {
       queue.again = true
       return
@@ -76,18 +80,28 @@ export function ConversationView({ id }: { id: string }) {
     try {
       do {
         queue.again = false
+        const reset = queue.resetModel
+        queue.resetModel = null
+        if (reset) {
+          setTopics([])
+          setRefreshingTopicModel(reset)
+        }
         try {
-          const result = await requestJson<{ topics: Topic[] }>(`/api/conversation/${id}/topics`, {
+          const result = await requestJson<{ topics: Topic[]; topicModel: string }>(`/api/conversation/${id}/topics`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: topicModelRef.current }),
+            body: JSON.stringify(reset ? { model: reset, reset: true } : { model: topicModelRef.current }),
           })
+          topicModelRef.current = result.topicModel
+          setTopicModel(result.topicModel)
           setTopics(result.topics)
           setTopicError('')
         } catch (topicsError) {
           setTopicError(topicsError instanceof Error ? topicsError.message : 'Could not identify the topic.')
+        } finally {
+          if (reset) setRefreshingTopicModel(null)
         }
-      } while (queue.again)
+      } while (queue.again || queue.resetModel)
     } finally {
       queue.running = false
       setTopicsUpdating(false)
@@ -347,15 +361,16 @@ export function ConversationView({ id }: { id: string }) {
           <TopicSidebar
             topics={topics}
             messages={messages}
-            model={topicModel}
+            model={selectedTopicModel}
+            appliedModel={topicModel}
+            refreshingModel={refreshingTopicModel}
             defaultModel={conversation.model1}
             isUpdating={topicsUpdating}
             isGenerating={isLoading || conversation.status !== 'completed'}
             error={topicError}
-            onModelChange={model => {
-              topicModelRef.current = model
-              setTopicModel(model)
-            }}
+            onModelChange={setSelectedTopicModel}
+            onRefresh={() => void requestTopics(selectedTopicModel)}
+            onKeepCurrent={() => setSelectedTopicModel(topicModel)}
             onSelect={goToMessage}
           />
           <div className="conversation-main">

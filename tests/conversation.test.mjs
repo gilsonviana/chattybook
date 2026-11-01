@@ -1232,14 +1232,38 @@ test('invalid topic replies and model failures do not advance topic progress', a
   const created = await createConversation({ totalTurns: 2 })
   const id = created.data.id
   await seedMessages(id, ['Gardens need funding.', 'Grants can help.'])
-  for (const reply of [{ content: 'SAME' }, { content: `NEW: ${'x'.repeat(81)}` }, { status: 500 }]) {
-    chatReplies = [reply]
+  for (const replies of [[{ content: 'SAME' }, { content: 'SAME' }], [{ content: `NEW: ${'x'.repeat(81)}` }, { content: 'SAME' }], [{ status: 500 }]]) {
+    chatReplies = [...replies]
+    calls.length = 0
     const failed = await updateTopics(id)
     assert.ok(failed.status >= 500, JSON.stringify(failed.data))
+    assert.equal(calls.length, replies.length)
     assert.equal((await database.conversation.findUnique({ where: { id } })).topicsThroughMessageId, null)
   }
   chatReplies = [{ content: 'Funding Gardens' }]
   assert.deepEqual((await updateTopics(id)).data.topics.map(topic => topic.title), ['Funding Gardens'])
+})
+
+test('topic replies tolerate common format drift and get one repair attempt', async () => {
+  const created = await createConversation({ totalTurns: 4 })
+  const id = created.data.id
+  const messages = await seedMessages(id, ['Gardens need funding.', 'Grants can help.', 'More on grants.', 'Grants again.', 'Zoning matters.', 'Zoning is slow.', 'Zoning still.', 'Yes, zoning.'])
+  calls.length = 0
+  chatReplies = [
+    { content: 'SAME' },
+    { content: ' NEW TOPIC: Garden Funding \n' },
+    { content: ' SAME: Garden Funding' },
+    { content: 'CURRENT_TOPIC: Zoning Reform' },
+    { content: 'zoning reform' },
+  ]
+  const result = await updateTopics(id)
+  assert.equal(result.status, 200, JSON.stringify(result.data))
+  assert.equal(calls.length, 5)
+  assert.match(calls[1].messages.at(-1).content, /did not follow the required format/)
+  assert.deepEqual(result.data.topics.map(topic => [topic.title, topic.messageId]), [
+    ['Garden Funding', messages[0].id],
+    ['Zoning Reform', messages[4].id],
+  ])
 })
 
 test('topic requests validate input and topics are deleted with their conversation', async () => {
@@ -1256,4 +1280,36 @@ test('topic requests validate input and topics are deleted with their conversati
   assert.equal((await database.conversation.findUnique({ where: { id } })).updatedAt.getTime(), before.updatedAt.getTime())
   assert.equal((await deleteConversation(id)).status, 200)
   assert.equal(await database.topic.count({ where: { conversationId: id } }), 0)
+})
+
+test('refreshing topics erases them and regenerates the whole conversation with the new model', async () => {
+  const created = await createConversation({ totalTurns: 2 })
+  const id = created.data.id
+  const messages = await seedMessages(id, ['Gardens need funding.', 'Grants can help.', 'Zoning matters too.', 'Zoning reform is slow.'])
+  chatReplies = [{ content: 'NEW: Funding' }, { content: 'SAME' }]
+  const original = await updateTopics(id)
+  assert.deepEqual(original.data.topics.map(topic => topic.title), ['Funding'])
+
+  for (const body of [{ reset: 'yes', model: localModels[1] }, { reset: true }, { reset: true, model: 'not-installed' }]) {
+    assert.equal((await updateTopics(id, body)).status, 400, JSON.stringify(body))
+  }
+  assert.deepEqual((await api(`/api/conversation/${id}`)).data.topics.map(topic => topic.title), ['Funding'])
+
+  const before = await database.conversation.findUnique({ where: { id } })
+  calls.length = 0
+  chatReplies = [{ content: 'NEW: Garden Grants' }, { content: 'NEW: Zoning Reform' }]
+  const refreshed = await updateTopics(id, { model: localModels[1], reset: true })
+  assert.equal(refreshed.status, 200, JSON.stringify(refreshed.data))
+  assert.equal(calls.length, 2)
+  assert.ok(calls.every(call => call.model === localModels[1]))
+  assert.equal(JSON.parse(calls[0].messages[1].content).currentTopic, null)
+  assert.equal(refreshed.data.topicModel, localModels[1])
+  assert.deepEqual(refreshed.data.topics.map(topic => [topic.title, topic.messageId]), [
+    ['Garden Grants', messages[0].id],
+    ['Zoning Reform', messages[2].id],
+  ])
+  const after = await database.conversation.findUnique({ where: { id } })
+  assert.equal(after.topicModel, localModels[1])
+  assert.equal(after.topicsThroughMessageId, messages[3].id)
+  assert.equal(after.updatedAt.getTime(), before.updatedAt.getTime())
 })
