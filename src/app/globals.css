@@ -131,6 +131,11 @@ h1, h2, h3, p { margin: 0; }
 .planner-subject { font-size: 1.05rem; font-weight: 600; overflow-wrap: anywhere; }
 .planner-status { color: var(--muted); }
 .planner .error { margin: 0; }
+.planner-notice { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid #e0b453; border-radius: 10px; background: #fff8e6; overflow-wrap: anywhere; }
+.planner-model { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px 12px; }
+.planner-model label { grid-column: 1 / -1; }
+.planner-model select { margin-top: 0; }
+.planner-model button { min-height: 44px; border-radius: 8px; }
 .planner-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border); }
 .planner-actions button { min-height: 44px; padding: 10px 16px; border-radius: 8px; }
 .plan-topics { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }

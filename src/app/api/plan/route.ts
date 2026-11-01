@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { errorResponse, readBody } from '../../../../lib/api'
+import { ApiError, errorResponse, readBody } from '../../../../lib/api'
 import { parseConversationConfig, summarizeForkSource } from '../../../../lib/conversation'
 import { requireLocalModels } from '../../../../lib/ollama'
 import { generateTopicPlan, parseForkSummary, parsePreviousTopics } from '../../../../lib/topic-planner'
@@ -11,12 +11,16 @@ export async function POST(request: Request) {
     const options = parseConversationConfig(body)
     const previousTopics = parsePreviousTopics(body.previousTopics)
     const providedSummary = options.forkedFromId === null ? null : parseForkSummary(body.forkSummary)
-    await requireLocalModels([options.model1, options.model2], request.signal)
+    if (body.planModel !== undefined && (typeof body.planModel !== 'string' || !body.planModel.trim())) {
+      throw new ApiError('planModel must be a local model name.', 400)
+    }
+    const planModel = typeof body.planModel === 'string' ? body.planModel.trim() : options.model1
+    await requireLocalModels([options.model1, options.model2, planModel], request.signal)
     const forkSummary = options.forkedFromId === null
       ? null
       : providedSummary === undefined ? await summarizeForkSource(options.forkedFromId, options.model1) : providedSummary
-    const topics = await generateTopicPlan({ ...options, forkSummary, previousTopics }, request.signal)
-    return NextResponse.json({ topics, forkSummary })
+    const { topics, incomplete } = await generateTopicPlan({ ...options, planModel, forkSummary, previousTopics }, request.signal)
+    return NextResponse.json({ topics, forkSummary, requestedCount: options.totalTurns, incomplete })
   } catch (error) {
     return errorResponse(error)
   }

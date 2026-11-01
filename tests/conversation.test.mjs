@@ -1246,13 +1246,54 @@ test('plan generation repairs malformed, short, and overlapping drafts within bo
   assert.equal(planCalls.length, 1)
 
   planReplies = [{ content: overlapping }, { content: '{}' }, { content: overlapping }]
-  const failed = await draftPlan({ totalTurns: 2 })
-  assert.equal(failed.status, 502)
-  assert.match(failed.data.error, /could not produce a valid topic plan/)
+  const partial = await draftPlan({ totalTurns: 2 })
+  assert.equal(partial.status, 200, JSON.stringify(partial.data))
+  assert.deepEqual(partial.data.topics.map(topic => topic.title), ['Soil health basics'])
+  assert.equal(partial.data.requestedCount, 2)
+  assert.match(partial.data.incomplete, /could not draft every topic.*overlaps topic 1/)
   assert.equal(planCalls.length, 3)
 
   planReplies = [{ status: 500 }]
   assert.equal((await draftPlan({ totalTurns: 2 })).status, 503)
+  planReplies = []
+})
+
+test('failed plans return every valid drafted topic and let another local model draft', async () => {
+  planReplies = [{ content: '{}' }, { content: 'No ideas.' }, { content: JSON.stringify({ topics: [{ title: '', description: '' }] }) }]
+  const empty = await draftPlan({ totalTurns: 3 })
+  assert.equal(empty.status, 200, JSON.stringify(empty.data))
+  assert.deepEqual(empty.data.topics, [])
+  assert.equal(empty.data.requestedCount, 3)
+  assert.match(empty.data.incomplete, /could not draft every topic/)
+
+  const fresh = fixtureTopics(10, 16)
+  const repeated = fixtureTopics(1, 1)
+  planReplies = [
+    { content: JSON.stringify({ topics: fixtureTopics(15, 1) }) },
+    { content: JSON.stringify({ topics: [...repeated, ...fresh.slice(0, 2)] }) },
+    { content: JSON.stringify({ topics: [...repeated, ...fresh.slice(0, 4)] }) },
+    { content: '{}' },
+  ]
+  const salvaged = await draftPlan({ totalTurns: 30 })
+  assert.equal(salvaged.status, 200, JSON.stringify(salvaged.data))
+  assert.deepEqual(salvaged.data.topics, [...fixtureTopics(15, 1), ...fresh.slice(0, 4)])
+  assert.equal(salvaged.data.requestedCount, 30)
+  assert.ok(salvaged.data.incomplete)
+  assert.equal(planCalls.length, 4)
+
+  const before = await database.conversation.count()
+  const created = await createConversation({ totalTurns: salvaged.data.topics.length, topics: salvaged.data.topics })
+  assert.equal(created.status, 201, JSON.stringify(created.data))
+  assert.equal(created.data.totalTurns, 19)
+  assert.equal(await database.conversation.count(), before + 1)
+
+  const switched = await draftPlan({ totalTurns: 2, planModel: localModels[1] })
+  assert.equal(switched.status, 200)
+  assert.equal(switched.data.incomplete, null)
+  assert.ok(planCalls.every(call => call.model === localModels[1]))
+  assert.equal((await draftPlan({ planModel: 'not-installed' })).status, 400)
+  assert.equal((await draftPlan({ planModel: 7 })).status, 400)
+  assert.equal(planCalls.length, 0)
   planReplies = []
 })
 

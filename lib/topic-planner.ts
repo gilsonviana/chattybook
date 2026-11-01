@@ -28,7 +28,7 @@ const PLAN_SCHEMA = {
 
 export interface PlanRequest {
   subject: string
-  model1: string
+  planModel: string
   persona1: Persona
   persona2: Persona
   mode: ConversationMode
@@ -111,7 +111,21 @@ function planInstructions(request: PlanRequest) {
   return `You are Agent 1, planning a conversation with another AI agent about ${JSON.stringify(request.subject)}. Plan only; do not write dialogue, questions, or answers. Each topic is the primary focus of one turn, in which each agent responds once.${mode}${personas}${devilsAdvocate}${fork} Rules: every topic must be clearly about the subject and cover a distinct aspect, such as a different concept, mechanism, perspective, problem, or consequence. Never rephrase, overlap with, or create an umbrella over another topic. Order topics as a coherent progression from foundations through mechanisms and perspectives to trade-offs, applications, and open questions, each connecting to earlier ones. Each title is a specific label of at most 12 words. Each description is one or two sentences (at most 60 words) stating the purpose of the turn and what it should establish. Respond only with JSON in the form {"topics":[{"title":"...","description":"..."}]}.`
 }
 
-async function generateBatch(request: PlanRequest, accepted: PlannedTopic[], count: number, cancellation: AbortSignal): Promise<PlannedTopic[]> {
+export interface TopicPlanResult {
+  topics: PlannedTopic[]
+  incomplete: string | null
+}
+
+function keepValidTopics(accepted: PlannedTopic[], candidates: PlannedTopic[], subject: string): PlannedTopic[] {
+  const kept: PlannedTopic[] = []
+  for (const candidate of candidates) {
+    const topics = [...accepted, ...kept, candidate]
+    if (!findTopicProblems(topics, subject, topics.length - 1).length) kept.push(candidate)
+  }
+  return kept
+}
+
+async function generateBatch(request: PlanRequest, accepted: PlannedTopic[], count: number, cancellation: AbortSignal): Promise<TopicPlanResult> {
   const deadline = new AbortController()
   const timer = setTimeout(() => deadline.abort(), PLAN_BATCH_DEADLINE_MS)
   const signal = AbortSignal.any([cancellation, deadline.signal])
@@ -125,10 +139,11 @@ async function generateBatch(request: PlanRequest, accepted: PlannedTopic[], cou
   ]
   let rejected = ''
   let problems: string[] = []
+  let best: PlannedTopic[] = []
   try {
     for (let attempt = 0; attempt < PLAN_ATTEMPTS; attempt++) {
       signal.throwIfAborted()
-      const content = await generateChatResponse(request.model1, [
+      const content = await generateChatResponse(request.planModel, [
         ...messages,
         ...(attempt ? [
           { role: 'assistant', content: rejected },
@@ -139,28 +154,33 @@ async function generateBatch(request: PlanRequest, accepted: PlannedTopic[], cou
       const parsed = parsePlanReply(content)
       if (!parsed) {
         problems = ['The reply was not valid JSON in the form {"topics":[{"title":"...","description":"..."}]}.']
-      } else if (parsed.length < count) {
-        problems = [`The reply contained ${parsed.length} topics; exactly ${count} are required.`]
-      } else {
-        const batch = parsed.slice(0, count)
-        problems = findTopicProblems([...accepted, ...batch], request.subject, start)
-        if (!problems.length) return batch
+        continue
       }
+      const batch = parsed.slice(0, count)
+      const kept = keepValidTopics(accepted, batch, request.subject)
+      if (kept.length > best.length) best = kept
+      problems = parsed.length < count
+        ? [`The reply contained ${parsed.length} topics; exactly ${count} are required.`]
+        : findTopicProblems([...accepted, ...batch], request.subject, start)
+      if (!problems.length) return { topics: batch, incomplete: null }
     }
   } catch (error) {
     cancellation.throwIfAborted()
-    if (deadline.signal.aborted) throw new ApiError('Planning timed out before Agent 1 produced a valid topic plan. Please regenerate.', 504)
-    throw error
+    if (!deadline.signal.aborted) throw error
+    return { topics: best, incomplete: 'Planning timed out before the model drafted every topic.' }
   } finally {
     clearTimeout(timer)
   }
-  throw new ApiError(`Agent 1 could not produce a valid topic plan. ${problems.slice(0, 3).join(' ')} Please regenerate.`, 502)
+  return { topics: best, incomplete: `The model could not draft every topic. ${problems.slice(0, 3).join(' ')}` }
 }
 
-export async function generateTopicPlan(request: PlanRequest, signal: AbortSignal): Promise<PlannedTopic[]> {
+export async function generateTopicPlan(request: PlanRequest, signal: AbortSignal): Promise<TopicPlanResult> {
   const topics: PlannedTopic[] = []
   while (topics.length < request.totalTurns) {
-    topics.push(...await generateBatch(request, topics, Math.min(PLAN_BATCH_SIZE, request.totalTurns - topics.length), signal))
+    const batch = await generateBatch(request, topics, Math.min(PLAN_BATCH_SIZE, request.totalTurns - topics.length), signal)
+    topics.push(...batch.topics)
+    // Later batches would be planned for the wrong positions after a shortfall.
+    if (batch.incomplete) return { topics, incomplete: batch.incomplete }
   }
-  return topics
+  return { topics, incomplete: null }
 }
