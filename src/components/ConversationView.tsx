@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import { ArrowDown, ArrowUp, GitFork, Play, Plus, Square } from 'lucide-react'
 import { requestJson } from '../../lib/client'
 import type { Conversation, Message } from '../../lib/types'
 import { ChatWindow } from './ChatWindow'
@@ -271,22 +271,17 @@ export function ConversationView({ id }: { id: string }) {
     window.print()
   }
 
+  const canResume = !isLoading && conversation?.status === 'generating'
+  const stopLabel = isStopping ? 'Stopping...' : canResume ? 'Resume dialogue' : 'Stop dialogue'
+
   return (
     <main className="app conversation-page" ref={page}>
-      <div className="conversation-nav">
-        <Link href="/">New dialogue</Link>
-        {conversation && (
-          <div className="conversation-actions">
-            <button type="button" className="secondary" onClick={forkConversation}>Fork</button>
-            <button type="button" className="secondary" onClick={exportPdf} disabled={conversation.status !== 'completed' || messages.length === 0}>Export to PDF</button>
-          </div>
-        )}
-      </div>
       {isLoading && !conversation && <p className="muted" role="status">Loading conversation...</p>}
       {error && <div className="error" role="alert">{error}</div>}
       {error && !conversation && <Link href="/">Back to conversations</Link>}
       {conversation && (
         <>
+          <h1 className="conversation-title">{conversation.title ?? conversation.subject}</h1>
           {conversation.topics.length > 0 && (
             <ConversationPlan topics={conversation.topics} messageCount={messages.length} status={conversation.status} />
           )}
@@ -306,22 +301,36 @@ export function ConversationView({ id }: { id: string }) {
             forkCount={conversation.forks.length}
             endRef={chatEnd}
           />
-          {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
-            <div className="actions">
-              <button
-                type="button"
-                onClick={() => void (!isLoading && conversation.status === 'generating' ? retryConversation() : stopConversation())}
-                disabled={isStopping}
-              >
-                {isStopping ? 'Stopping...' : !isLoading && conversation.status === 'generating' ? 'Resume' : 'Stop'}
+          <div className="conversation-nav">
+            <div className="conversation-actions">
+              {(isStopping || (isLoading && conversation.status !== 'completed') || (!isLoading && conversation.status === 'generating')) && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={stopLabel}
+                  data-tooltip={stopLabel}
+                  onClick={() => void (canResume ? retryConversation() : stopConversation())}
+                  disabled={isStopping}
+                >
+                  {canResume ? <Play size={18} aria-hidden="true" /> : <Square size={16} fill="currentColor" aria-hidden="true" />}
+                </button>
+              )}
+              {!isLoading && !isStopping && conversation.status === 'active' && (
+                <button type="button" className="icon-button" aria-label="Continue dialogue" data-tooltip="Continue dialogue" onClick={() => void retryConversation()}>
+                  <Play size={18} aria-hidden="true" />
+                </button>
+              )}
+              <Link href="/" className="icon-button" aria-label="New dialogue" data-tooltip="New dialogue">
+                <Plus size={20} aria-hidden="true" />
+              </Link>
+            </div>
+            <div className="conversation-actions">
+              <button type="button" className="secondary icon-button" aria-label="Fork" data-tooltip="Fork" onClick={forkConversation}>
+                <GitFork size={18} aria-hidden="true" />
               </button>
+              <button type="button" className="secondary" onClick={exportPdf} disabled={conversation.status !== 'completed' || messages.length === 0}>Export to PDF</button>
             </div>
-          )}
-          {!isLoading && !isStopping && conversation.status === 'active' && (
-            <div className="actions">
-              <button onClick={() => void retryConversation()}>Retry / continue dialogue</button>
-            </div>
-          )}
+          </div>
           {conversation.forks.length > 0 && (
             <nav id="conversation-forks" className="fork-continuation panel" aria-labelledby="fork-continuation-heading">
               <h2 id="fork-continuation-heading">Continue reading</h2>

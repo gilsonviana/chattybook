@@ -84,9 +84,9 @@ h1, h2, h3, p { margin: 0; }
 .rename-dialog .error { margin: 0; padding: 10px 12px; }
 .rename-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .rename-dialog-actions button { min-height: 40px; padding: 8px 14px; border-radius: 7px; }
-.conversation-nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+.conversation-title { margin-bottom: 20px; font-size: 1.5rem; overflow-wrap: anywhere; }
+.conversation-nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-block: 20px; }
 .conversation-nav a { display: inline-flex; min-height: 42px; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid #315cd5; border-radius: 8px; background: #315cd5; color: white; font-weight: 600; text-decoration: none; transition: background-color .15s, border-color .15s; }
-.conversation-nav a::before { content: "+"; font-size: 1.15rem; font-weight: 400; line-height: 1; }
 .conversation-nav a:hover { border-color: #2347ae; background: #2347ae; }
 .conversation-actions { display: flex; gap: 8px; }
 .conversation-actions button { min-height: 42px; padding: 8px 14px; border-radius: 8px; }
@@ -153,10 +153,13 @@ h1, h2, h3, p { margin: 0; }
 
 .conversation-page { overflow-anchor: none; }
 .app.conversation-page { max-width: 1240px; }
-.conversation-page .chat-window, .conversation-page .conversation-summary, .conversation-page .fork-continuation, .conversation-page .conversation-plan { margin-right: 60px; }
+.conversation-page .chat-window, .conversation-page .conversation-summary, .conversation-page .fork-continuation, .conversation-page .conversation-plan, .conversation-page .conversation-nav { margin-right: 60px; }
 .conversation-page .conversation-nav { flex-wrap: wrap; }
 .conversation-page .conversation-nav a, .conversation-page .conversation-actions button { white-space: nowrap; }
 .conversation-page .message h3 { flex-wrap: wrap; }
+.conversation-page .icon-button { position: relative; display: inline-grid; place-items: center; width: 42px; height: 42px; min-height: 42px; padding: 0; border-radius: 8px; }
+.conversation-page .icon-button::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 6px); left: 0; padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: .75rem; font-weight: 400; white-space: nowrap; visibility: hidden; pointer-events: none; }
+.conversation-page .icon-button:hover::after, .conversation-page .icon-button:focus-visible::after { visibility: visible; }
 .conversation-scroll { position: fixed; z-index: 4; right: max(16px, calc((100vw - 1240px) / 2 + 16px), env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: grid; grid-template-rows: 44px 44px; gap: 8px; }
 .conversation-scroll button { position: relative; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); box-shadow: 0 3px 12px #17243b26; }
 .conversation-scroll button:hover { background: var(--border); }
@@ -188,7 +191,7 @@ h1, h2, h3, p { margin: 0; }
 @media (max-width: 600px) {
   .app { padding: 0 12px 24px; }
   .page-header { padding: 24px 12px 16px; }
-  .conversation-page .chat-window, .conversation-page .conversation-summary, .conversation-page .fork-continuation, .conversation-page .conversation-plan { margin-right: max(60px, calc(env(safe-area-inset-right) + 48px)); }
+  .conversation-page .chat-window, .conversation-page .conversation-summary, .conversation-page .fork-continuation, .conversation-page .conversation-plan, .conversation-page .conversation-nav { margin-right: max(60px, calc(env(safe-area-inset-right) + 48px)); }
   .conversation-scroll { right: max(12px, env(safe-area-inset-right)); }
   .home-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "setup" "history"; }
   .agent-selectors, .length-turns { grid-template-columns: 1fr; }

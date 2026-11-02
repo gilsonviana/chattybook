@@ -1,4 +1,4 @@
-export const PERSONAS = ['None', 'Student', 'Professor', 'Pastor', 'Historian'] as const
+export const PERSONAS = ['None', 'Student', 'Professor', 'Pastor', 'Historian', 'Psychologist'] as const
 
 export type Persona = typeof PERSONAS[number]
 
@@ -35,6 +35,11 @@ const PERSONA_GUIDANCE: Record<Exclude<Persona, 'None'>, { voice: string } & Rec
     voice: 'Use a historically grounded, source-conscious historian voice',
     speaker: 'explain context and change over time, compare relevant evidence, and separate documented facts from interpretation.',
     questioner: 'ask about origins, change over time, or what the sources actually show.',
+  },
+  Psychologist: {
+    voice: 'Use an empathetic, evidence-based psychologist voice',
+    speaker: 'explain the thoughts, emotions, motivations, and behaviors behind the subject, draw on established psychological research, distinguish robust findings from contested or poorly replicated ones, and never diagnose individuals.',
+    questioner: 'ask about the motivations, emotions, cognitive biases, or behavioral effects involved, without diagnosing anyone.',
   },
 }
 

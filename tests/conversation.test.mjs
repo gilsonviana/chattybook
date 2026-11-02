@@ -471,6 +471,21 @@ test('Student discussion guidance reasons from first principles', async () => {
   assert.doesNotMatch(calls[0].messages[0].content, /naive or exploratory questions/)
 })
 
+test('Psychologist discussion guidance is evidence-based and never diagnoses', async () => {
+  const created = await createConversation({ totalTurns: 1, persona2: 'Psychologist' })
+  assert.equal(created.status, 201)
+  assert.equal(created.data.persona2, 'Psychologist')
+  calls.length = 0
+  for (let index = 0; index < 2; index++) {
+    const result = await api('/api/chat', { conversationId: created.data.id, expectedMessageCount: index })
+    assert.equal(result.status, 200, JSON.stringify(result.data))
+  }
+  assert.doesNotMatch(calls[0].messages[0].content, /psychologist/i)
+  assert.match(calls[1].messages[0].content, /empathetic, evidence-based psychologist voice: explain the thoughts/)
+  assert.match(calls[1].messages[0].content, /contested or poorly replicated/)
+  assert.match(calls[1].messages[0].content, /never diagnose individuals/)
+})
+
 test("devil's advocate mode persists and makes only Agent 1 challenge Agent 2", async () => {
   const defaulted = await createConversation({ totalTurns: 1 })
   assert.equal(defaulted.data.devilsAdvocate, false)
@@ -967,12 +982,14 @@ const speakerLenses = {
   Professor: /explain relevant concepts with disciplinary context/,
   Pastor: /bring relevant faith traditions/,
   Historian: /explain context and change over time/,
+  Psychologist: /explain the thoughts, emotions, motivations, and behaviors/,
 }
 const questionerLenses = {
   Student: /ask naive or exploratory questions/,
   Professor: /ask about key concepts, the strength of the evidence/,
   Pastor: /ask about ethical stakes, meaning, or human impact/,
   Historian: /ask about origins, change over time, or what the sources actually show/,
+  Psychologist: /ask about the motivations, emotions, cognitive biases/,
 }
 
 test('Q&A requires one independently answerable question for every persona and response length', async () => {
@@ -982,8 +999,9 @@ test('Q&A requires one independently answerable question for every persona and r
     Professor: /precise, scholarly professor voice/,
     Pastor: /compassionate, reflective pastor voice/,
     Historian: /historically grounded, source-conscious historian voice/,
+    Psychologist: /empathetic, evidence-based psychologist voice/,
   }
-  for (const persona1 of ['None', 'Student', 'Professor', 'Pastor', 'Historian']) {
+  for (const persona1 of ['None', 'Student', 'Professor', 'Pastor', 'Historian', 'Psychologist']) {
     for (const responseLength of ['short', 'medium']) {
       calls.length = 0
       const created = await createConversation({ totalTurns: 1, mode: 'qa', subject, persona1, responseLength })
@@ -1078,8 +1096,9 @@ test('Q&A Agent 2 stays question-scoped across personas and allowed response len
     Professor: /precise, scholarly professor voice/,
     Pastor: /compassionate, reflective pastor voice/,
     Historian: /historically grounded, source-conscious historian voice/,
+    Psychologist: /empathetic, evidence-based psychologist voice/,
   }
-  for (const persona2 of ['None', 'Student', 'Professor', 'Pastor', 'Historian']) {
+  for (const persona2 of ['None', 'Student', 'Professor', 'Pastor', 'Historian', 'Psychologist']) {
     for (const responseLength of ['short', 'medium']) {
       const created = await createConversation({ totalTurns: 2, mode: 'qa', persona2, responseLength })
       assert.equal(created.status, 201)
