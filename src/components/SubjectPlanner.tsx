@@ -137,16 +137,20 @@ export function SubjectPlanner() {
   return (
     <section className="panel planner" aria-labelledby="planner-heading">
       <div className="planner-heading">
-        <h2 id="planner-heading">Subject planner</h2>
-        <p className="planner-subject">{config.subject}</p>
+        <p className="eyebrow">Subject planner</p>
+        <h1 id="planner-heading">{config.subject}</h1>
         <p className="muted">
           {[
             `${config.totalTurns} ${config.totalTurns === 1 ? 'turn' : 'turns'}`,
             config.mode === 'qa' ? 'Q&A' : 'Discussion',
-            `Agent 1: ${config.model1}${config.persona1 === 'None' ? '' : ` (${config.persona1})`}`,
-            `Agent 2: ${config.model2}${config.persona2 === 'None' ? '' : ` (${config.persona2})`}`,
             ...(config.devilsAdvocate ? ["Devil's advocate"] : []),
             ...(draft.forkSource ? [`Fork of ${draft.forkSource.title ?? draft.forkSource.subject}`] : []),
+          ].join(' · ')}
+        </p>
+        <p className="muted">
+          {[
+            `Agent 1: ${config.model1}${config.persona1 === 'None' ? '' : ` (${config.persona1})`}`,
+            `Agent 2: ${config.model2}${config.persona2 === 'None' ? '' : ` (${config.persona2})`}`,
           ].join(' · ')}
         </p>
       </div>
@@ -169,34 +173,48 @@ export function SubjectPlanner() {
         </div>
       )}
       {modelPicker}
+      {isGenerating && !plan && (
+        <ol className="plan-topics plan-skeleton" aria-hidden="true">
+          {Array.from({ length: Math.min(config.totalTurns, 5) }, (_, index) => (
+            <li key={index}>
+              <span className="plan-topic-turn">{index + 1}</span>
+              <div className="plan-topic-body"><span className="skeleton-line" /><span className="skeleton-line short" /></div>
+            </li>
+          ))}
+        </ol>
+      )}
       {plan && topicCount > 0 && (
         <ol className="plan-topics" aria-label="Proposed topics" aria-busy={isGenerating}>
           {plan.topics.map((topic, index) => (
             <li key={`${index}-${topic.title}`}>
-              <span className="plan-topic-turn">Turn {index + 1}</span>
-              <strong>{topic.title}</strong>
-              <p>{topic.description}</p>
+              <span className="plan-topic-turn"><span className="sr-only">Turn </span>{index + 1}</span>
+              <div className="plan-topic-body">
+                <strong>{topic.title}</strong>
+                <p>{topic.description}</p>
+              </div>
             </li>
           ))}
         </ol>
       )}
       <div className="planner-actions">
         <button type="button" className="secondary" onClick={goBack} disabled={isStarting}>{isEmpty ? 'Back to homepage' : 'Back'}</button>
-        {isPartial && !showModelPicker && (
-          <button type="button" className="secondary" onClick={() => setShowModelPicker(true)} disabled={isGenerating || isStarting}>
-            Try a different model
+        <div className="planner-actions-main">
+          {isPartial && !showModelPicker && (
+            <button type="button" className="secondary" onClick={() => setShowModelPicker(true)} disabled={isGenerating || isStarting}>
+              Try a different model
+            </button>
+          )}
+          <button type="button" className="secondary" onClick={() => void generate(draft, plan, planModel)} disabled={isGenerating || isStarting}>
+            {isGenerating && plan ? 'Regenerating...' : 'Regenerate'}
           </button>
-        )}
-        <button type="button" className="secondary" onClick={() => void generate(draft, plan, planModel)} disabled={isGenerating || isStarting}>
-          {isGenerating && plan ? 'Regenerating...' : 'Regenerate'}
-        </button>
-        {!isEmpty && (
-          <button type="button" onClick={() => void confirmPlan()} disabled={!plan || isGenerating || isStarting}>
-            {isStarting
-              ? draft.forkSource && !plan?.forkSummary ? 'Summarizing...' : 'Starting...'
-              : isPartial ? `Continue with ${topicCount} ${topicCount === 1 ? 'topic' : 'topics'}` : 'Confirm & Start'}
-          </button>
-        )}
+          {!isEmpty && (
+            <button type="button" onClick={() => void confirmPlan()} disabled={!plan || isGenerating || isStarting}>
+              {isStarting
+                ? draft.forkSource && !plan?.forkSummary ? 'Summarizing...' : 'Starting...'
+                : isPartial ? `Continue with ${topicCount} ${topicCount === 1 ? 'topic' : 'topics'}` : 'Confirm & Start'}
+            </button>
+          )}
+        </div>
       </div>
     </section>
   )

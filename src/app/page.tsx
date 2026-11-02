@@ -18,6 +18,11 @@ function displayTitle(conversation: Pick<ConversationSummary, 'subject' | 'title
   return conversation.title ?? conversation.subject
 }
 
+const MODE_HINTS: Record<ConversationMode, string> = {
+  discussion: 'Both agents debate each topic and build on earlier arguments.',
+  qa: 'Agent 1 asks one question per turn; Agent 2 answers it.',
+}
+
 export default function Home() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -34,6 +39,9 @@ export default function Home() {
   const [isSavingRename, setIsSavingRename] = useState(false)
   const renameDialog = useRef<HTMLDialogElement>(null)
   const renameInput = useRef<HTMLInputElement>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ConversationSummary | null>(null)
+  const deleteDialog = useRef<HTMLDialogElement>(null)
+  const deleteCancel = useRef<HTMLButtonElement>(null)
   const homeLayoutRef = useRef<HTMLDivElement>(null)
   const setupFormRef = useRef<HTMLFormElement>(null)
   const [health, setHealth] = useState<OllamaHealth | null>(null)
@@ -157,6 +165,24 @@ export default function Home() {
     renameInput.current?.select()
   }, [renameTarget])
 
+  useEffect(() => {
+    if (!deleteTarget) return
+    const dialog = deleteDialog.current
+    if (dialog && !dialog.open) dialog.showModal()
+    deleteCancel.current?.focus()
+  }, [deleteTarget])
+
+  function retryOllama() {
+    setChecking(true)
+    void refreshOllama()
+  }
+
+  function changeMode(nextMode: ConversationMode) {
+    setMode(nextMode)
+    setResponseLength(current => resolveResponseLength(nextMode, current))
+    if (nextMode === 'qa') setDevilsAdvocate(false)
+  }
+
   function startConversation() {
     if (forkingConversationId !== null || !subject.trim() || !model1 || !model2 || !validTurns || !health?.running) return
     setIsLoading(true)
@@ -212,9 +238,8 @@ export default function Home() {
   }
 
   async function manageConversation(conversation: ConversationSummary) {
-    if (pendingConversationId !== null) return
+    if (pendingConversationId !== null) return false
     const cancelling = conversation.status === 'generating'
-    if (!cancelling && !window.confirm(`Delete "${displayTitle(conversation)}" and all its messages? This cannot be undone.`)) return
 
     setActionError('')
     setPendingConversationId(conversation.id)
@@ -223,11 +248,28 @@ export default function Home() {
       setHistory(current => cancelling
         ? current.map(item => item.id === conversation.id ? { ...item, status: 'completed' } : item)
         : current.filter(({ id }) => id !== conversation.id))
+      return true
     } catch (error) {
       setActionError(error instanceof Error ? error.message : `Could not ${cancelling ? 'cancel' : 'delete'} the conversation.`)
+      return false
     } finally {
       setPendingConversationId(null)
     }
+  }
+
+  function openDelete(conversation: ConversationSummary, trigger: HTMLButtonElement) {
+    trigger.closest('details')?.removeAttribute('open')
+    if (conversation.status === 'generating') {
+      void manageConversation(conversation)
+      return
+    }
+    setActionError('')
+    setDeleteTarget(conversation)
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    if (await manageConversation(deleteTarget)) deleteDialog.current?.close()
   }
 
   function openRename(conversation: ConversationSummary, trigger: HTMLButtonElement) {
@@ -261,20 +303,31 @@ export default function Home() {
   }
 
   const validTurns = typeof turns === 'number' && Number.isInteger(turns) && turns >= 1 && turns <= 100
+  const blockReason = checking ? 'Checking the Ollama connection...'
+    : !health?.running ? 'Start Ollama to continue.'
+      : !models.length ? 'Install a local model to continue.'
+        : !subject.trim() ? 'Enter a subject to continue.'
+          : !validTurns ? 'Choose between 1 and 100 turns.' : ''
+  const connectionState = checking ? 'checking' : health?.running ? 'connected' : 'offline'
 
   return (
     <main className="app home-page">
       <section className="connection" aria-label="Ollama connection">
-        <span
-          className={`connection-indicator${health?.running ? ' is-connected' : ''}`}
-          role="status"
-          aria-label={checking ? 'Checking Ollama connection' : health?.running ? 'Ollama connected' : 'Ollama unavailable'}
-        />
-        <span className="connection-label">Ollama health</span>
+        <span className={`connection-indicator is-${connectionState}`} aria-hidden="true" />
+        <span className="connection-label" role="status">
+          {connectionState === 'checking' ? 'Checking Ollama...'
+            : connectionState === 'connected' ? <>Ollama connected{health?.version ? ` · v${health.version}` : ''} · {models.length} {models.length === 1 ? 'model' : 'models'}</>
+              : <>Ollama is not running. Start it with <code>ollama serve</code>.</>}
+        </span>
+        {!checking && (
+          <button type="button" className="secondary compact" onClick={retryOllama}>
+            {health?.running ? 'Refresh models' : 'Retry'}
+          </button>
+        )}
       </section>
       {error && <div className="error" role="alert">{error}</div>}
       {!checking && health?.running && models.length === 0 && (
-        <p className="error" role="alert">No local models found. Install one with <code>ollama pull qwen3.5:4b</code>, then reload this page.</p>
+        <p className="error" role="alert">No local models found. Install one with <code>ollama pull qwen3.5:4b</code>, then select <strong>Refresh models</strong>.</p>
       )}
 
       <div className="home-layout" ref={homeLayoutRef}>
@@ -285,48 +338,52 @@ export default function Home() {
               <button type="button" className="secondary" onClick={() => setForkSource(null)} disabled={isLoading}>Clear</button>
             </div>
           )}
-          <label>
-            Discussion subject
+          <div className="setup-heading">
+            <h1>New dialogue</h1>
+            <p className="muted">Choose a subject and two agents, then review the topic plan before the dialogue starts.</p>
+          </div>
+          <label className="subject-field">
+            Subject
             <input ref={subjectInput} value={subject} onChange={event => setSubject(event.target.value)} placeholder="e.g., Can AI make people more creative?" required disabled={isLoading} />
           </label>
           <fieldset className="setup-group">
             <legend>Agents</legend>
             <AgentSelector model1={model1} model2={model2} persona1={persona1} persona2={persona2} models={models} onChange={(firstModel, secondModel, firstPersona, secondPersona) => { setModel1(firstModel); setModel2(secondModel); setPersona1(firstPersona); setPersona2(secondPersona) }} disabled={isLoading || checking || !models.length} />
-            <p className="muted">Each agent can use a different local model and persona.</p>
           </fieldset>
           <fieldset className="setup-group">
-            <legend>Dialogue settings</legend>
-            <div className="dialogue-toggles">
-              <button
-                type="button"
-                className="mode-toggle"
-                role="switch"
-                aria-checked={mode === 'qa'}
-                onClick={() => {
-                  const nextMode = mode === 'qa' ? 'discussion' : 'qa'
-                  setMode(nextMode)
-                  setResponseLength(current => resolveResponseLength(nextMode, current))
-                  if (nextMode === 'qa') setDevilsAdvocate(false)
-                }}
-                disabled={isLoading}
-              >
-                <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
-                <span>Q&amp;A mode</span>
-                <span className="mode-toggle-state" aria-hidden="true">{mode === 'qa' ? 'On' : 'Off'}</span>
-              </button>
-              <button
-                type="button"
-                className="mode-toggle"
-                role="switch"
-                aria-checked={devilsAdvocate && mode !== 'qa'}
-                title={mode === 'qa' ? "Devil's advocate is not available in Q&A mode." : "Agent 1 questions Agent 2's responses and tries to refute them."}
-                onClick={() => setDevilsAdvocate(current => !current)}
-                disabled={isLoading || mode === 'qa'}
-              >
-                <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
-                <span>Devil&apos;s advocate</span>
-                <span className="mode-toggle-state" aria-hidden="true">{devilsAdvocate && mode !== 'qa' ? 'On' : 'Off'}</span>
-              </button>
+            <legend>Dialogue</legend>
+            <div className="dialogue-options">
+              <div className="field">
+                <span className="field-label" id="mode-label">Mode</span>
+                <div className="segmented" role="radiogroup" aria-labelledby="mode-label" aria-describedby="mode-hint">
+                  {(['discussion', 'qa'] as const).map(value => (
+                    <label key={value} className="segmented-option">
+                      <input type="radio" name="mode" value={value} checked={mode === value} onChange={() => changeMode(value)} disabled={isLoading} />
+                      <span>{value === 'qa' ? 'Q&A' : 'Discussion'}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="field-hint" id="mode-hint">{MODE_HINTS[mode]}</p>
+              </div>
+              <div className="field">
+                <span className="field-label" id="devils-advocate-label">Devil&apos;s advocate</span>
+                <button
+                  type="button"
+                  className="mode-toggle"
+                  role="switch"
+                  aria-labelledby="devils-advocate-label"
+                  aria-describedby="devils-advocate-hint"
+                  aria-checked={devilsAdvocate && mode !== 'qa'}
+                  onClick={() => setDevilsAdvocate(current => !current)}
+                  disabled={isLoading || mode === 'qa'}
+                >
+                  <span className="mode-toggle-track" aria-hidden="true"><span className="mode-toggle-thumb" /></span>
+                  <span className="mode-toggle-state" aria-hidden="true">{devilsAdvocate && mode !== 'qa' ? 'On' : 'Off'}</span>
+                </button>
+                <p className="field-hint" id="devils-advocate-hint">
+                  {mode === 'qa' ? 'Available in Discussion mode.' : "Agent 1 challenges Agent 2's claims and tries to refute them."}
+                </p>
+              </div>
             </div>
             <div className="length-turns">
               <label>
@@ -339,12 +396,15 @@ export default function Home() {
               </label>
               <label>
                 Number of turns
-                <input type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} />
+                <input type="number" min={1} max={100} value={turns} onChange={event => setTurns(event.target.value === '' ? '' : Number(event.target.value))} required disabled={isLoading} aria-describedby="turns-hint" />
+                <span className="field-hint" id="turns-hint">
+                  {validTurns ? `${turns * 2} responses, one from each agent per turn.` : 'Enter 1 to 100 turns.'}
+                </span>
               </label>
             </div>
-            <p className="muted">One turn includes a response from each agent. Default: 5 turns (10 responses).</p>
           </fieldset>
           <div className="setup-actions">
+            {blockReason && <p className="muted">{blockReason}</p>}
             <button type="submit" disabled={isLoading || forkingConversationId !== null || checking || !health?.running || !models.length || !model1 || !model2 || !subject.trim() || !validTurns}>
               {isLoading ? 'Opening...' : 'Plan topics'}
             </button>
@@ -359,7 +419,12 @@ export default function Home() {
           <div className="history-content">
             {historyError && <p className="error" role="alert">{historyError}</p>}
             {actionError && <p className="error" role="alert">{actionError}</p>}
-            {!historyError && history.length === 0 && <p className="muted">No saved conversations yet.</p>}
+            {!historyError && history.length === 0 && (
+              <div className="history-empty">
+                <p><strong>No conversations yet</strong></p>
+                <p className="muted">Plan topics for a subject and your dialogues will be listed here.</p>
+              </div>
+            )}
             {history.length > 0 && (
               <ul className="history-list">
                 {history.map(conversation => (
@@ -368,13 +433,18 @@ export default function Home() {
                       <span className="history-subject">{displayTitle(conversation)}</span>
                       <span className="history-meta">
                         {[
-                          ...(conversation.status === 'generating' ? ['Generating'] : []),
-                          ...(conversation.forkedFromId !== null ? ['Forked'] : []),
+                          new Date(conversation.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                          `${conversation.messageCount} ${conversation.messageCount === 1 ? 'response' : 'responses'}`,
                           ...[conversation.persona1, conversation.persona2].filter(persona => persona !== 'None'),
-                          ...(conversation.devilsAdvocate ? ["Devil's advocate"] : []),
-                          conversation.responseLength.charAt(0).toUpperCase() + conversation.responseLength.slice(1),
                         ].join(' · ')}
                       </span>
+                      {(conversation.status === 'generating' || conversation.forkedFromId !== null || conversation.devilsAdvocate) && (
+                        <span className="history-tags">
+                          {conversation.status === 'generating' && <span className="tag tag-accent">Generating</span>}
+                          {conversation.forkedFromId !== null && <span className="tag">Forked</span>}
+                          {conversation.devilsAdvocate && <span className="tag">Devil&apos;s advocate</span>}
+                        </span>
+                      )}
                     </Link>
                     <details className="history-menu">
                       <summary aria-label={`Actions for ${displayTitle(conversation)}`} title="Conversation actions">
@@ -403,7 +473,7 @@ export default function Home() {
                           type="button"
                           className="history-menu-action history-menu-delete"
                           disabled={pendingConversationId !== null || forkingConversationId !== null}
-                          onClick={() => { void manageConversation(conversation) }}
+                          onClick={event => openDelete(conversation, event.currentTarget)}
                         >
                           {conversation.status === 'generating'
                             ? pendingConversationId === conversation.id ? 'Cancelling...' : 'Cancel'
@@ -420,7 +490,7 @@ export default function Home() {
       </div>
       {renameTarget && (
         <dialog
-          className="rename-dialog"
+          className="app-dialog"
           ref={renameDialog}
           aria-labelledby="rename-dialog-title"
           onCancel={event => { if (isSavingRename) event.preventDefault() }}
@@ -440,10 +510,34 @@ export default function Home() {
               disabled={isSavingRename}
               onChange={event => setRenameValue(event.target.value)}
             />
-            <div className="rename-dialog-actions">
+            <div className="dialog-actions">
               <button type="button" className="secondary" disabled={isSavingRename} onClick={() => renameDialog.current?.close()}>Cancel</button>
               <button type="submit" disabled={isSavingRename || !renameValue.trim() || renameValue.trim().length > MAX_TITLE_LENGTH}>
                 {isSavingRename ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </dialog>
+      )}
+      {deleteTarget && (
+        <dialog
+          className="app-dialog"
+          ref={deleteDialog}
+          aria-labelledby="delete-dialog-title"
+          aria-describedby="delete-dialog-description"
+          onCancel={event => { if (pendingConversationId !== null) event.preventDefault() }}
+          onClose={() => setDeleteTarget(null)}
+        >
+          <form onSubmit={event => { event.preventDefault(); void confirmDelete() }}>
+            <h2 id="delete-dialog-title">Delete conversation?</h2>
+            {actionError && <p className="error" role="alert">{actionError}</p>}
+            <p id="delete-dialog-description">
+              <strong>{displayTitle(deleteTarget)}</strong> and all its messages will be permanently deleted.
+            </p>
+            <div className="dialog-actions">
+              <button type="button" className="secondary" ref={deleteCancel} disabled={pendingConversationId !== null} onClick={() => deleteDialog.current?.close()}>Cancel</button>
+              <button type="submit" className="danger" disabled={pendingConversationId !== null}>
+                {pendingConversationId === deleteTarget.id ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </form>

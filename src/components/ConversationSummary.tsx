@@ -160,6 +160,9 @@ export function ConversationSummary({ conversation, disabled }: { conversation: 
           )}
         </div>
         {isSummarizing && <p className="muted" role="status">Generating summary...</p>}
+        {!isSummarizing && (conversation.status !== 'completed' || conversation.messages.length === 0) && (
+          <p className="muted">{conversation.status === 'completed' ? 'There are no messages to summarize.' : 'Available when the dialogue finishes.'}</p>
+        )}
         {modelsLoading && <p className="muted" role="status">Loading summary models...</p>}
         {!modelsLoading && (modelsError || !models.includes(model)) && (
           <div className="summary-model-error">
